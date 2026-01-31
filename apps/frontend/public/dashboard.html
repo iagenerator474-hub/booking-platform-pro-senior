@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard Admin</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .container { max-width: 980px; }
+    .row { display:flex; gap: 12px; flex-wrap: wrap; align-items:center; }
+    .pill { font-size: 12px; padding: 6px 10px; border: 1px solid #1f2933; border-radius: 999px; color:#9ca3af; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #1f2933; padding: 10px 8px; text-align: left; font-size: 14px; }
+    th { color:#9ca3af; font-weight: 600; }
+    .right { text-align:right; }
+    .muted { color:#9ca3af; }
+    .section { margin-top: 22px; }
+    .actions button { background: linear-gradient(180deg, #374151, #1f2937); }
+    input, select { max-width: 320px; }
+    .err { color: #ef4444; margin-top: 8px; }
+    .ok { color: #22c55e; margin-top: 8px; }
+    code { color:#c7d2fe; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top">
+      <h1>Dashboard Admin</h1>
+      <div class="actions">
+        <button id="refreshBtn">Rafraîchir</button>
+        <button id="logoutBtn">Logout</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="pill" id="whoami">Session: chargement…</div>
+      <div class="pill" id="now"></div>
+    </div>
+
+    <div id="msg" class="muted"></div>
+
+    <div class="section">
+      <h3>Réservations</h3>
+      <div class="muted">Source: <code>GET /reservations</code></div>
+      <div id="reservationsError" class="err"></div>
+      <table id="reservationsTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Email</th>
+            <th>Statut</th>
+            <th>Créé</th>
+            <th class="right">Montant</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h3>Paiements (ledger)</h3>
+      <div class="muted">Source: <code>GET /payments</code> (si exposé) ou à ajouter côté backend</div>
+      <div id="paymentsHint" class="muted"></div>
+      <div id="paymentsError" class="err"></div>
+      <table id="paymentsTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Booking</th>
+            <th>Type</th>
+            <th>Stripe Session</th>
+            <th>Créé</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script>
+    const whoami = document.getElementById("whoami");
+    const now = document.getElementById("now");
+    const msg = document.getElementById("msg");
+
+    const refreshBtn = document.getElementById("refreshBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+
+    const reservationsTbody = document.querySelector("#reservationsTable tbody");
+    const reservationsError = document.getElementById("reservationsError");
+
+    const paymentsTbody = document.querySelector("#paymentsTable tbody");
+    const paymentsError = document.getElementById("paymentsError");
+    const paymentsHint = document.getElementById("paymentsHint");
+
+    now.textContent = new Date().toLocaleString("fr-FR");
+
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+    }
+
+    async function api(url, opts = {}) {
+      const res = await fetch(url, { credentials: "include", ...opts });
+      // Si la session est morte, le serveur renvoie souvent une redirection /login
+      if (res.redirected && res.url.includes("/login")) {
+        window.location.href = "/login";
+        return null;
+      }
+      if (res.status === 401) {
+        window.location.href = "/login";
+        return null;
+      }
+      return res;
+    }
+
+    async function loadMe() {
+      const res = await api("/auth/me");
+      if (!res) return;
+      if (!res.ok) {
+        whoami.textContent = "Session: erreur";
+        return;
+      }
+      const data = await res.json();
+      whoami.textContent = `Session: ${data.email || "?"} (${data.role || "?"})`;
+    }
+
+    function renderReservations(rows) {
+      reservationsTbody.innerHTML = "";
+      for (const r of rows) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${esc(r.id)}</td>
+          <td>${esc(r.email || r.customerEmail)}</td>
+          <td>${esc(r.status)}</td>
+          <td>${esc(r.createdAt || r.created_at || "")}</td>
+          <td class="right">${esc(r.amount || r.totalAmount || "")}</td>
+        `;
+        reservationsTbody.appendChild(tr);
+      }
+      if (!rows.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td colspan="5" class="muted">Aucune réservation</td>`;
+        reservationsTbody.appendChild(tr);
+      }
+    }
+
+    async function loadReservations() {
+      reservationsError.textContent = "";
+      const res = await api("/reservations");
+      if (!res) return;
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        reservationsError.textContent = `Impossible de charger /reservations (${res.status}). ${txt}`;
+        renderReservations([]);
+        return;
+      }
+      const data = await res.json();
+      // selon ton backend, ça peut être { reservations: [...] } ou juste [...]
+      const rows = Array.isArray(data) ? data : (data.reservations || data.items || []);
+      renderReservations(rows);
+    }
+
+    function renderPayments(rows) {
+      paymentsTbody.innerHTML = "";
+      for (const p of rows) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${esc(p.id)}</td>
+          <td>${esc(p.bookingId || p.booking_id)}</td>
+          <td>${esc(p.type || p.eventType)}</td>
+          <td>${esc(p.stripeSessionId || p.stripe_session_id)}</td>
+          <td>${esc(p.createdAt || p.created_at || "")}</td>
+        `;
+        paymentsTbody.appendChild(tr);
+      }
+      if (!rows.length) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td colspan="5" class="muted">Aucun événement paiement</td>`;
+        paymentsTbody.appendChild(tr);
+      }
+    }
+
+    async function loadPaymentsIfExists() {
+      paymentsError.textContent = "";
+      paymentsHint.textContent = "";
+
+      // Certains backends n'exposent pas encore /payments : on gère proprement
+      const res = await api("/payments");
+      if (!res) return;
+
+      if (res.status === 404) {
+        paymentsHint.textContent =
+          "Endpoint /payments non exposé côté backend. Les paiements existent en DB (ledger), mais il faut ajouter une route admin pour les lister.";
+        renderPayments([]);
+        return;
+      }
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        paymentsError.textContent = `Erreur /payments (${res.status}). ${txt}`;
+        renderPayments([]);
+        return;
+      }
+
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : (data.payments || data.events || data.items || []);
+      renderPayments(rows);
+    }
+
+    refreshBtn.addEventListener("click", async () => {
+      msg.textContent = "Rafraîchissement…";
+      await Promise.all([loadMe(), loadReservations(), loadPaymentsIfExists()]);
+      msg.textContent = "OK";
+      setTimeout(() => (msg.textContent = ""), 800);
+    });
+
+    logoutBtn.addEventListener("click", async () => {
+      await fetch("/auth/logout", { method: "POST", credentials: "include" });
+      window.location.href = "/login";
+    });
+
+    // boot
+    (async function init() {
+      await loadMe();
+      await loadReservations();
+      await loadPaymentsIfExists();
+    })();
+  </script>
+</body>
+</html>

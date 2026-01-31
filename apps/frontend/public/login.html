@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login Admin</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Connexion Admin</h1>
+
+    <form id="login-form">
+      <label>
+        Email
+        <input type="email" name="email" autocomplete="username" required />
+      </label>
+
+      <label>
+        Mot de passe
+        <input type="password" name="password" autocomplete="current-password" required />
+      </label>
+
+      <button type="submit">Se connecter</button>
+    </form>
+
+    <div id="login-message"></div>
+  </div>
+
+  <script>
+    const form = document.getElementById("login-form");
+    const messageDiv = document.getElementById("login-message");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      messageDiv.textContent = "";
+      messageDiv.style.color = "";
+
+      const data = Object.fromEntries(new FormData(form).entries());
+
+      try {
+        const res = await fetch("/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(data),
+        });
+
+        if (!res.ok) {
+          messageDiv.textContent = "❌ Identifiants incorrects";
+          messageDiv.style.color = "red";
+          return;
+        }
+
+        // Login OK -> dashboard
+        window.location.href = "/dashboard";
+      } catch (err) {
+        messageDiv.textContent = "❌ Erreur serveur";
+        messageDiv.style.color = "red";
+      }
+    });
+  </script>
+</body>
+</html>

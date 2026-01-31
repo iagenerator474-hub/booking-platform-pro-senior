@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Réservez votre séance</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+  <h1>Réservez votre séance</h1>
+  <form id="booking-form">
+    <label>Prénom <input type="text" name="firstName" required></label>
+    <label>Nom <input type="text" name="lastName" required></label>
+    <label>Email <input type="email" name="email" required></label>
+    <label>Date <input type="date" name="date" required></label>
+    <label>Heure <input type="time" name="time" required></label>
+    <button type="submit">Confirmer la réservation</button>
+  </form>
+  <div id="message"></div>
+</div>
+
+<script>
+const form = document.getElementById('booking-form');
+const messageDiv = document.getElementById('message');
+
+function validateForm(data) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(data.email)) return 'Email invalide';
+  const today = new Date();
+  const selectedDate = new Date(data.date + 'T' + data.time);
+  if (selectedDate < today) return 'Date/heure passée';
+  return null;
+}
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(form).entries());
+  const error = validateForm(data);
+  if (error) {
+    messageDiv.textContent = `❌ ${error}`;
+    messageDiv.style.color = 'red';
+    return;
+  }
+
+  messageDiv.textContent = '⏳ Envoi en cours...';
+  messageDiv.style.color = '#333';
+  const submitBtn = form.querySelector('button');
+  submitBtn.disabled = true;
+
+  try {
+    const res = await fetch('/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const json = await res.json();
+    if (json.url) window.location.href = json.url;
+  } catch {
+    messageDiv.textContent = '❌ Erreur serveur.';
+    messageDiv.style.color = 'red';
+    submitBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
+

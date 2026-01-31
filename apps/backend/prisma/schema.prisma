@@ -1,0 +1,47 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Booking {
+  id                    String   @id @default(uuid())
+
+  // --- Métier actuel (JSON) ---
+  firstName             String
+  lastName              String
+  email                 String
+  date                  String
+  time                  String
+  status                String   // "en attente" | "payé"
+
+  // --- Stripe (optionnel tant qu'on n'a pas basculé le webhook sur DB) ---
+  stripeSessionId       String?  @unique
+  stripePaymentIntentId String?  @unique
+
+  // --- Paiement (optionnel tant que Stripe n'écrit pas en DB) ---
+  amountTotal           Int?
+  currency              String?
+
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([email, date, time])
+}
+
+model PaymentEvent {
+  id              String   @id @default(uuid())
+  stripeEventId   String   @unique
+  type            String
+  stripeSessionId String?
+  bookingId       String?
+  processedAt     DateTime @default(now())
+
+  @@index([stripeSessionId])
+}
