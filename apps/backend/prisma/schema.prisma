@@ -13,19 +13,21 @@ datasource db {
 model Booking {
   id String @id @default(uuid())
 
-  // --- Métier minimal (aligné avec ton index existant) ---
-  email String
-  date  String
-  time  String
+  // --- Métier (aligné code + tests) ---
+  firstName String
+  lastName  String
+  email     String
+  date      String
+  time      String
 
   // --- Paiement / Stripe ---
-  status                String   @default("en attente") // "en attente" | "payé"
-  stripeSessionId        String?  @unique
-  stripePaymentIntentId  String?
-  amountTotal            Int?
-  currency               String?
+  status               String  @default("en attente") // "en attente" | "payé"
+  stripeSessionId       String? @unique
+  stripePaymentIntentId String?
+  amountTotal           Int?
+  currency              String?
 
-  // Relation (optionnelle mais propre)
+  // Relation (lecture/audit)
   paymentEvents PaymentEvent[]
 
   createdAt DateTime @default(now())
@@ -62,3 +64,4 @@ model User {
   @@index([role])
   @@index([isActive])
 }
+
