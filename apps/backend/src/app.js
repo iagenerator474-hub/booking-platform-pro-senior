@@ -1,36 +1,52 @@
-
 const path = require("path");
 const express = require("express");
 const bodyParser = require("body-parser");
 const session = require("express-session");
 
-const { NODE_ENV, TRUST_PROXY, SESSION_SECRET, COOKIE_SECURE, COOKIE_SAMESITE, COOKIE_DOMAIN } = require("./config/env");
+const {
+  NODE_ENV,
+  TRUST_PROXY,
+  SESSION_SECRET,
+  COOKIE_SECURE,
+  COOKIE_SAMESITE,
+  COOKIE_DOMAIN,
+} = require("./config/env");
 
 const { securityHeaders } = require("./middlewares/securityHeaders");
 const { webhookLimiter } = require("./middlewares/rateLimit");
-
 const { requestContext } = require("./middlewares/requestContext");
 const { errorHandler } = require("./middlewares/errorHandler");
 
+// Page auth (redirect) for frontend routes
+const requireAuth = require("./middlewares/requireAuth");
+
+// API routes
 const authRoutes = require("./modules/auth/auth.routes");
 const bookingRoutes = require("./modules/booking/booking.routes");
-const webhookRoutes = require("./modules/payment/webhook.controller");
 const paymentsRoutes = require("./modules/payment/payments.routes");
-
-const requireAuth = require("./middlewares/requireAuth");
+const adminRoutes = require("./modules/admin/admin.routes"); // ✅ manquant dans ton fichier
+const webhookRoutes = require("./modules/payment/webhook.controller");
 
 const app = express();
 
-// If deployed behind a reverse proxy (common in prod), enable this.
-// It is required for secure cookies when TLS is terminated at the proxy.
+/**
+ * ------------------------------------------------------------
+ * Proxy / trust proxy
+ * ------------------------------------------------------------
+ * Required for secure cookies when TLS is terminated at a proxy.
+ */
 if (TRUST_PROXY) app.set("trust proxy", 1);
 
-// Security headers (helmet)
+/**
+ * ------------------------------------------------------------
+ * Security headers (helmet)
+ * ------------------------------------------------------------
+ */
 app.use(securityHeaders());
 
 /**
  * ------------------------------------------------------------
- * Middlewares (context/logging first)
+ * Request context (requestId/log correlation) first
  * ------------------------------------------------------------
  */
 app.use(requestContext);
@@ -70,7 +86,12 @@ app.use(
  * We want:  .../apps/frontend/public
  */
 const publicDir = path.join(__dirname, "..", "..", "frontend", "public");
-console.log("Serving admin frontend from:", publicDir);
+
+// Log only in non-test to avoid noise
+if (NODE_ENV !== "test") {
+  // eslint-disable-next-line no-console
+  console.log("Serving admin frontend from:", publicDir);
+}
 
 // Serve static assets (login.html, dashboard.html, style.css, etc.)
 app.use(express.static(publicDir));
@@ -102,6 +123,7 @@ app.use((req, res, next) => {
   if (req.originalUrl.startsWith("/webhook")) return next();
   return bodyParser.json()(req, res, next);
 });
+
 app.use((req, res, next) => {
   if (req.originalUrl.startsWith("/webhook")) return next();
   return bodyParser.urlencoded({ extended: false })(req, res, next);
@@ -115,6 +137,7 @@ app.use((req, res, next) => {
 app.use("/auth", authRoutes);
 app.use("/", bookingRoutes); // expose /create-checkout-session + /reservations
 app.use("/", paymentsRoutes); // expose /payments (admin-protected)
+app.use("/admin", adminRoutes); // ✅ /admin/metrics RBAC etc.
 app.use("/webhook", webhookRoutes); // POST /webhook
 
 /**
