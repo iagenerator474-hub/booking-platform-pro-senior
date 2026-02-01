@@ -1,14 +1,9 @@
 const authRepository = require("./auth.repository");
+const { verifyPassword } = require("../../auth/password");
 
 async function login({ email, password }) {
-  if (!email || !password) {
-    const err = new Error("Email et mot de passe requis");
-    err.status = 400;
-    throw err;
-  }
-
-  const user = authRepository.findByEmail(email);
-  const ok = await authRepository.verifyPassword(user, password);
+  const user = await authRepository.findByEmail(email);
+  const ok = user ? await verifyPassword(password, user.passwordHash) : false;
 
   if (!ok) {
     const err = new Error("Identifiants invalides");
@@ -16,7 +11,6 @@ async function login({ email, password }) {
     throw err;
   }
 
-  // Never expose password
   return { id: user.id, email: user.email, role: user.role };
 }
 
