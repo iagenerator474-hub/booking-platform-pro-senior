@@ -1,30 +1,16 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
-<title>Paiement réussi</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paiement réussi</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<div class="container">
-  <h1>Paiement réussi ! ✅</h1>
-  <p>Merci pour votre réservation.</p>
-  <a class="btn" href="index.html">Retour à l'accueil</a>
-</div>
-
-<script>
-const params = new URLSearchParams(window.location.search);
-const email = params.get('email');
-const date = params.get('date');
-const time = params.get('time');
-
-if(email && date && time){
-  fetch('/payment-success', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({email, date, time})
-  }).catch(err => console.error('Erreur mise à jour paiement:', err));
-}
-</script>
+  <div class="container">
+    <h1>✅ Paiement réussi</h1>
+    <p>Merci ! Votre réservation a été prise en compte.</p>
+    <a href="/">Retour à l’accueil</a>
+  </div>
 </body>
 </html>

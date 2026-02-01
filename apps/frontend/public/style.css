@@ -1,185 +1,79 @@
-/* ------------------------------------------------------------
-   Base reset & variables
------------------------------------------------------------- */
-* {
-  box-sizing: border-box;
+body {
+  font-family: Arial, sans-serif;
+  background: #0b1220;
+  color: #e5e7eb;
   margin: 0;
   padding: 0;
 }
 
-:root {
-  --bg: #0f172a;          /* slate-900 */
-  --card: #111827;        /* gray-900 */
-  --text: #e5e7eb;        /* gray-200 */
-  --muted: #9ca3af;       /* gray-400 */
-  --primary: #3b82f6;     /* blue-500 */
-  --primary-hover: #2563eb;
-  --danger: #ef4444;
-  --border: #1f2933;
-}
-
-/* ------------------------------------------------------------
-   Body
------------------------------------------------------------- */
-body {
-  min-height: 100vh;
-  background: radial-gradient(1200px 600px at 50% -200px, #1e293b, var(--bg));
-  color: var(--text);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* ------------------------------------------------------------
-   Container
------------------------------------------------------------- */
 .container {
-  width: 100%;
-  max-width: 420px;
-  background: linear-gradient(180deg, #0b1220, var(--card));
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 28px 26px 30px;
-  box-shadow:
-    0 30px 60px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  max-width: 520px;
+  margin: 40px auto;
+  padding: 24px;
+  border-radius: 12px;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
 }
 
-/* ------------------------------------------------------------
-   Titles & text
------------------------------------------------------------- */
 h1 {
-  text-align: center;
-  margin-bottom: 22px;
-  font-size: 1.6rem;
-  font-weight: 600;
+  margin: 0 0 18px 0;
+  font-size: 22px;
 }
 
-h3 {
-  margin-top: 20px;
-  margin-bottom: 10px;
-  font-size: 1rem;
-  color: var(--muted);
-}
-
-p {
-  color: var(--muted);
-  font-size: 0.95rem;
-}
-
-/* ------------------------------------------------------------
-   Forms
------------------------------------------------------------- */
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-label {
-  display: flex;
-  flex-direction: column;
-  font-size: 0.85rem;
-  color: var(--muted);
-  gap: 6px;
-}
-
-input {
-  background: #020617;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  color: var(--text);
-  font-size: 0.95rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-input::placeholder {
-  color: #6b7280;
-}
-
-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
-}
-
-/* ------------------------------------------------------------
-   Buttons
------------------------------------------------------------- */
-button {
-  margin-top: 6px;
-  background: linear-gradient(180deg, var(--primary), var(--primary-hover));
-  border: none;
-  border-radius: 10px;
-  padding: 11px 14px;
-  color: white;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.05s ease, filter 0.15s ease;
-}
-
-button:hover {
-  filter: brightness(1.05);
-}
-
-button:active {
-  transform: translateY(1px);
-}
-
-/* ------------------------------------------------------------
-   Messages
------------------------------------------------------------- */
-#login-message {
-  margin-top: 14px;
-  text-align: center;
-  font-size: 0.9rem;
-}
-
-/* ------------------------------------------------------------
-   Dashboard specific
------------------------------------------------------------- */
 .top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.actions {
+  display: flex;
   gap: 10px;
 }
 
-.top h1 {
-  margin-bottom: 0;
-  font-size: 1.4rem;
+label {
+  display: block;
+  margin: 12px 0;
 }
 
-.top button {
-  background: linear-gradient(180deg, #374151, #1f2937);
-  font-size: 0.85rem;
-  padding: 8px 12px;
-}
-
-pre {
-  margin-top: 10px;
-  background: #020617;
-  border: 1px solid var(--border);
+input, select {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 10px 12px;
   border-radius: 10px;
-  padding: 12px;
-  font-size: 0.8rem;
-  color: #c7d2fe;
-  overflow-x: auto;
+  border: 1px solid #1f2937;
+  background: #0b1220;
+  color: #e5e7eb;
+  outline: none;
 }
 
-/* ------------------------------------------------------------
-   Responsive
------------------------------------------------------------- */
-@media (max-width: 480px) {
-  .container {
-    border-radius: 0;
-    min-height: 100vh;
-    max-width: none;
-    box-shadow: none;
-  }
+button {
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #1f2937;
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  color: #fff;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+a {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+#message, #login-message {
+  margin-top: 12px;
 }

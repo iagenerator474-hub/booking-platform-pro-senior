@@ -40,6 +40,13 @@
     <div id="msg" class="muted"></div>
 
     <div class="section">
+      <h3>Metrics Webhook</h3>
+      <div class="muted">Source: <code>GET /admin/metrics</code> (ADMIN|OPS)</div>
+      <div id="metricsError" class="err"></div>
+      <pre id="metricsPre">{}</pre>
+    </div>
+
+    <div class="section">
       <h3>Réservations</h3>
       <div class="muted">Source: <code>GET /reservations</code></div>
       <div id="reservationsError" class="err"></div>
@@ -75,13 +82,15 @@
         <tbody></tbody>
       </table>
     </div>
-
   </div>
 
   <script>
     const whoami = document.getElementById("whoami");
     const now = document.getElementById("now");
     const msg = document.getElementById("msg");
+
+    const metricsPre = document.getElementById("metricsPre");
+    const metricsError = document.getElementById("metricsError");
 
     const refreshBtn = document.getElementById("refreshBtn");
     const logoutBtn = document.getElementById("logoutBtn");
@@ -101,7 +110,7 @@
 
     async function api(url, opts = {}) {
       const res = await fetch(url, { credentials: "include", ...opts });
-      // Si la session est morte, le serveur renvoie souvent une redirection /login
+      // Si la session est morte, le serveur peut renvoyer une redirection /login
       if (res.redirected && res.url.includes("/login")) {
         window.location.href = "/login";
         return null;
@@ -116,12 +125,37 @@
     async function loadMe() {
       const res = await api("/auth/me");
       if (!res) return;
+
       if (!res.ok) {
         whoami.textContent = "Session: erreur";
         return;
       }
+
       const data = await res.json();
-      whoami.textContent = `Session: ${data.email || "?"} (${data.role || "?"})`;
+      const user = data && data.user ? data.user : data; // backward-compatible
+      whoami.textContent = `Session: ${user?.email || "?"} (${user?.role || "?"})`;
+    }
+
+    async function loadMetrics() {
+      metricsError.textContent = "";
+      const res = await api("/admin/metrics");
+      if (!res) return;
+
+      if (res.status === 403) {
+        metricsError.textContent = "Accès refusé (RBAC) : réservé aux rôles ADMIN/OPS.";
+        metricsPre.textContent = "{}";
+        return;
+      }
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        metricsError.textContent = `Impossible de charger /admin/metrics (${res.status}). ${txt}`;
+        metricsPre.textContent = "{}";
+        return;
+      }
+
+      const data = await res.json();
+      metricsPre.textContent = JSON.stringify(data, null, 2);
     }
 
     function renderReservations(rows) {
@@ -156,7 +190,6 @@
         return;
       }
       const data = await res.json();
-      // selon ton backend, ça peut être { reservations: [...] } ou juste [...]
       const rows = Array.isArray(data) ? data : (data.reservations || data.items || []);
       renderReservations(rows);
     }
@@ -185,7 +218,6 @@
       paymentsError.textContent = "";
       paymentsHint.textContent = "";
 
-      // Certains backends n'exposent pas encore /payments : on gère proprement
       const res = await api("/payments");
       if (!res) return;
 
@@ -210,7 +242,7 @@
 
     refreshBtn.addEventListener("click", async () => {
       msg.textContent = "Rafraîchissement…";
-      await Promise.all([loadMe(), loadReservations(), loadPaymentsIfExists()]);
+      await Promise.all([loadMe(), loadMetrics(), loadReservations(), loadPaymentsIfExists()]);
       msg.textContent = "OK";
       setTimeout(() => (msg.textContent = ""), 800);
     });
@@ -223,6 +255,7 @@
     // boot
     (async function init() {
       await loadMe();
+      await loadMetrics();
       await loadReservations();
       await loadPaymentsIfExists();
     })();
