@@ -1,5 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// Prisma schema
+// Docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
@@ -7,30 +7,29 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Prisma 7.x: la connexion (DATABASE_URL) est gérée via prisma.config.ts
 }
 
 model Booking {
-  id                    String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  // --- Métier actuel (JSON) ---
-  firstName             String
-  lastName              String
-  email                 String
-  date                  String
-  time                  String
-  status                String   // "en attente" | "payé"
+  // --- Métier minimal (aligné avec ton index existant) ---
+  email String
+  date  String
+  time  String
 
-  // --- Stripe (optionnel tant qu'on n'a pas basculé le webhook sur DB) ---
-  stripeSessionId       String?  @unique
-  stripePaymentIntentId String?  @unique
+  // --- Paiement / Stripe ---
+  status                String   @default("en attente") // "en attente" | "payé"
+  stripeSessionId        String?  @unique
+  stripePaymentIntentId  String?
+  amountTotal            Int?
+  currency               String?
 
-  // --- Paiement (optionnel tant que Stripe n'écrit pas en DB) ---
-  amountTotal           Int?
-  currency              String?
+  // Relation (optionnelle mais propre)
+  paymentEvents PaymentEvent[]
 
-  // Metadata
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([email, date, time])
 }
@@ -43,5 +42,23 @@ model PaymentEvent {
   bookingId       String?
   processedAt     DateTime @default(now())
 
+  // Relation DB propre (FK). Optionnelle car bookingId est nullable.
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
   @@index([stripeSessionId])
+  @@index([bookingId])
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         String   // ADMIN | OPS | READONLY
+  isActive     Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([isActive])
 }
