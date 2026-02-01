@@ -6,6 +6,7 @@ const { STRIPE_WEBHOOK_SECRET } = require("../../config/env");
 
 const { tryRegisterStripeEvent } = require("./payment-event.repository.db");
 const { prisma } = require("../../infra/prisma");
+const webhookCounters = require("../../infra/webhookCounters");
 
 /**
  * ✅ Signature verification isolated & injectable (mockable)
@@ -18,6 +19,8 @@ function verifyStripeEvent(rawBody, signature) {
 router.verifyStripeEvent = verifyStripeEvent;
 
 router.post("/", async (req, res) => {
+  webhookCounters.inc("webhook_received");
+
   const sig = req.headers["stripe-signature"];
   const rawBody = req.body;
 
@@ -34,6 +37,8 @@ router.post("/", async (req, res) => {
   try {
     event = router.verifyStripeEvent(rawBody, sig);
   } catch (err) {
+    webhookCounters.inc("webhook_invalid_signature");
+
     if (req.log) {
       req.log.warn({
         module: "stripe",
@@ -66,7 +71,6 @@ router.post("/", async (req, res) => {
     const stripeSessionId = session.id;
 
     const result = await prisma.$transaction(async (tx) => {
-      // ✅ Business-level idempotency: booking is the source of truth via stripeSessionId
       const booking = await tx.booking.findUnique({
         where: { stripeSessionId },
       });
@@ -81,8 +85,7 @@ router.post("/", async (req, res) => {
         return { alreadyPaid: true, bookingId: booking.id };
       }
 
-      // Now that we know the booking exists and isn't already paid,
-      // we can register the Stripe event idempotently (event-level).
+      // event-level idempotency (only once per stripeEventId)
       const { alreadyProcessed } = await tryRegisterStripeEvent({
         stripeEventId: event.id,
         type: event.type,
@@ -99,7 +102,6 @@ router.post("/", async (req, res) => {
         where: { id: booking.id },
         data: {
           status: "payé",
-          // Keep DB enriched with Stripe info when available
           stripePaymentIntentId: session.payment_intent ?? null,
           amountTotal: session.amount_total ?? null,
           currency: session.currency ?? null,
@@ -109,7 +111,7 @@ router.post("/", async (req, res) => {
       return { bookingUpdated: true, bookingId: booking.id };
     });
 
-    // Logging outcomes
+    // Outcomes
     if (result.noBooking) {
       if (req.log) {
         req.log.info({
@@ -125,6 +127,8 @@ router.post("/", async (req, res) => {
     }
 
     if (result.alreadyPaid) {
+      webhookCounters.inc("webhook_ignored_duplicate");
+
       if (req.log) {
         req.log.warn({
           module: "stripe",
@@ -140,6 +144,8 @@ router.post("/", async (req, res) => {
     }
 
     if (result.alreadyProcessed) {
+      webhookCounters.inc("webhook_ignored_duplicate");
+
       if (req.log) {
         req.log.warn({
           module: "stripe",
@@ -153,6 +159,8 @@ router.post("/", async (req, res) => {
       }
       return res.json({ received: true });
     }
+
+    webhookCounters.inc("webhook_booking_paid");
 
     if (req.log) {
       req.log.info({
@@ -168,7 +176,6 @@ router.post("/", async (req, res) => {
 
     return res.json({ received: true });
   } catch (error) {
-    // ✅ Strict ACK policy: 500 => Stripe retries
     if (req.log) {
       req.log.error({
         module: "stripe",
