@@ -21,7 +21,7 @@ describe("POST /webhook — no booking", () => {
     vi.restoreAllMocks();
   });
 
-  it("creates a PaymentEvent with bookingId=null when no booking matches", async () => {
+  it("does not create a PaymentEvent when no booking matches (ack only)", async () => {
     const stripeSessionId = "cs_test_unknown";
     const stripeEventId = "evt_test_unknown";
 
@@ -31,21 +31,21 @@ describe("POST /webhook — no booking", () => {
 
     const payload = Buffer.from(JSON.stringify({ any: "raw" }));
 
-    const r = await request(app)
+    const res = await request(app)
       .post("/webhook")
       .set("stripe-signature", "t=1,v1=fake")
       .set("content-type", "application/json")
       .send(payload);
 
-    expect(r.status).toBeGreaterThanOrEqual(200);
-    expect(r.status).toBeLessThan(300);
+    // ✅ ACK OK
+    expect(res.status).toBe(200);
 
+    // ❌ No PaymentEvent created
     const evt = await prisma.paymentEvent.findUnique({
       where: { stripeEventId },
     });
 
-    expect(evt).not.toBeNull();
-    expect(evt.bookingId).toBeNull();
-    expect(evt.stripeSessionId).toBe(stripeSessionId);
+    expect(evt).toBeNull();
   });
 });
+
