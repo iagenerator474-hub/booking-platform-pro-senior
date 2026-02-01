@@ -45,4 +45,4 @@ main()
     await prisma.$disconnect();
   });
 
-DATABASE_URL="postgresql://booking:booking@localhost:5432/booking_platform?schema=public"
+
