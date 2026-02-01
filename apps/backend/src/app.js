@@ -24,7 +24,7 @@ const requireAuth = require("./middlewares/requireAuth");
 const authRoutes = require("./modules/auth/auth.routes");
 const bookingRoutes = require("./modules/booking/booking.routes");
 const paymentsRoutes = require("./modules/payment/payments.routes");
-const adminRoutes = require("./modules/admin/admin.routes"); // ✅ manquant dans ton fichier
+const adminRoutes = require("./modules/admin/admin.routes");
 const webhookRoutes = require("./modules/payment/webhook.controller");
 
 const app = express();
@@ -33,29 +33,33 @@ const app = express();
  * ------------------------------------------------------------
  * Proxy / trust proxy
  * ------------------------------------------------------------
- * Required for secure cookies when TLS is terminated at a proxy.
+ * Needed for secure cookies when TLS is terminated at a proxy.
  */
 if (TRUST_PROXY) app.set("trust proxy", 1);
 
 /**
  * ------------------------------------------------------------
- * Security headers (helmet)
+ * Security headers
  * ------------------------------------------------------------
  */
 app.use(securityHeaders());
 
 /**
  * ------------------------------------------------------------
- * Request context (requestId/log correlation) first
+ * Request context (requestId/log correlation)
  * ------------------------------------------------------------
  */
 app.use(requestContext);
 
 /**
  * ------------------------------------------------------------
- * Session
+ * Session (prod-safe cookies)
  * ------------------------------------------------------------
  */
+const isProd = NODE_ENV === "production";
+const cookieSecure = Boolean(COOKIE_SECURE) || isProd;
+const cookieSameSite = COOKIE_SAMESITE || "lax";
+
 app.use(
   session({
     name: "sid",
@@ -63,14 +67,14 @@ app.use(
     resave: false,
     saveUninitialized: false,
 
-    // Required when behind a reverse proxy and using secure cookies
+    // express-session uses trust proxy for secure cookies behind proxy
     proxy: TRUST_PROXY,
 
     cookie: {
       httpOnly: true,
-      sameSite: COOKIE_SAMESITE,
-      secure: COOKIE_SECURE || NODE_ENV === "production",
-      domain: COOKIE_DOMAIN,
+      secure: cookieSecure,
+      sameSite: cookieSameSite,
+      domain: COOKIE_DOMAIN || undefined,
       maxAge: 1000 * 60 * 60 * 8, // 8h
     },
   })
@@ -78,25 +82,19 @@ app.use(
 
 /**
  * ------------------------------------------------------------
- * Frontend admin (served by Express)
+ * Frontend (static)
  * IMPORTANT: must be BEFORE the 404 handler
  * ------------------------------------------------------------
- *
- * __dirname = .../apps/backend/src
- * We want:  .../apps/frontend/public
  */
 const publicDir = path.join(__dirname, "..", "..", "frontend", "public");
 
-// Log only in non-test to avoid noise
 if (NODE_ENV !== "test") {
   // eslint-disable-next-line no-console
   console.log("Serving admin frontend from:", publicDir);
 }
 
-// Serve static assets (login.html, dashboard.html, style.css, etc.)
 app.use(express.static(publicDir));
 
-// Clean page routes
 app.get("/login", (req, res) => {
   res.sendFile(path.join(publicDir, "login.html"));
 });
@@ -135,14 +133,14 @@ app.use((req, res, next) => {
  * ------------------------------------------------------------
  */
 app.use("/auth", authRoutes);
-app.use("/", bookingRoutes); // expose /create-checkout-session + /reservations
-app.use("/", paymentsRoutes); // expose /payments (admin-protected)
-app.use("/admin", adminRoutes); // ✅ /admin/metrics RBAC etc.
-app.use("/webhook", webhookRoutes); // POST /webhook
+app.use("/", bookingRoutes);
+app.use("/", paymentsRoutes);
+app.use("/admin", adminRoutes);
+app.use("/webhook", webhookRoutes);
 
 /**
  * ------------------------------------------------------------
- * 404 handler (MUST BE AFTER ALL ROUTES)
+ * 404 handler
  * ------------------------------------------------------------
  */
 app.use((req, res) => {
@@ -157,3 +155,4 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 module.exports = app;
+
