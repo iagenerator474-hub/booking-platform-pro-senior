@@ -1,59 +1,252 @@
-# RUNBOOK
+# RUNBOOK – booking-platform-pro-senior
 
-## Prereqs
-- Node.js (LTS)
-- PostgreSQL (local or Docker)
-- Stripe CLI (optional but helpful for webhooks)
+This document describes how to **run, operate, monitor, and troubleshoot**
+the `booking-platform-pro-senior` backend in a production-like environment.
 
-## Environment variables (high level)
-See `.env.example` / docs in repo if present. At minimum:
-- `DATABASE_URL`
-- `SESSION_SECRET`
-- Stripe: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (and any required price/product ids)
-- Optional admin seed:
-  - `ADMIN_EMAIL`
-  - `ADMIN_PASSWORD`
+It is written for:
+- Developers
+- Operators
+- Technical clients
+- Future maintainers
 
-## Install
-- `npm install`
-- DB migrations:
-  - `npx prisma migrate deploy` (prod-like)
-  - or `npx prisma migrate dev` (dev)
-- Optional seed:
-  - `node prisma/seed.js` (if used in this repo)
+---
 
-## Run
-- `npm run dev` (or `npm start`)
+## Overview
 
-## Tests
-- `npm test`
+This backend is a **Dockerized Express application** using:
+- PostgreSQL 16
+- Prisma ORM
+- Stripe Checkout + signed webhooks
 
-## Useful endpoints
-Auth:
-- `POST /auth/login`
-- `GET /auth/me`
-- `POST /auth/logout`
+The system is intentionally simple:
+- Single backend service
+- Single database
+- No external queues
+- No background workers
 
-Admin:
-- `GET /admin/metrics` (ADMIN|OPS)
+Reliability is achieved through **database idempotence**, not infrastructure complexity.
 
-Stripe:
-- Checkout creation endpoint (see booking/payment routes)
-- Webhook endpoint (see webhook controller)
+---
 
-Frontend:
-- `/login`
-- `/dashboard`
+## Services
 
-## Common troubleshooting
-### 401 on /auth/me
-- You are not logged in (no session cookie)
-- Cookie not persisted (check curl `-c` and `-b` flags)
+Docker Compose starts two services:
 
-### secure cookies behind reverse proxy
-- Ensure `TRUST_PROXY=1` (or equivalent)
-- Ensure TLS termination is correctly configured
+| Service | Description |
+|------|------------|
+| `backend` | Express API server |
+| `db` | PostgreSQL 16 |
 
-### Webhook signature failures
-- Ensure webhook uses raw body
-- Ensure `STRIPE_WEBHOOK_SECRET` matches the endpoint secret used by Stripe/Stripe CLI
+---
+
+## Starting the stack
+
+From the repository root:
+
+```bash
+docker compose up --build
+
+
+Expected result:
+
+PostgreSQL starts
+
+Prisma client is generated
+
+Pending migrations are applied
+
+Backend listens on port 3000
+
+Stopping the stack
+docker compose down
+
+
+To also remove volumes (⚠ data loss):
+
+docker compose down -v
+
+Health check
+
+The backend exposes a health endpoint:
+
+GET /health
+
+
+Example:
+
+curl http://localhost:3000/health
+
+
+Response:
+
+{ "status": "ok" }
+
+
+If this endpoint is reachable, the backend is running and responsive.
+
+Logs
+View logs
+docker compose logs backend
+
+
+Follow logs:
+
+docker compose logs -f backend
+
+What to look for
+
+Normal startup logs include:
+
+Prisma client generation
+
+Migration status
+
+Server running on port 3000
+
+Stripe-related logs include:
+
+Webhook received
+
+Signature verification
+
+Idempotent skip warnings (expected on retries)
+
+Stripe webhook behavior
+Expected behavior
+
+Stripe will retry webhooks
+
+Duplicate deliveries are normal
+
+The backend must not process the same payment twice
+
+Idempotence mechanism
+
+Idempotence is enforced at the database level
+
+stripeSessionId is unique
+
+Duplicate webhook deliveries result in:
+
+No business logic re-execution
+
+HTTP 200 OK response
+
+This is expected and healthy behavior.
+
+ACK policy summary
+Situation	Response
+Invalid Stripe signature	400
+Successful processing	200
+Already processed	200
+Processing error	500 (Stripe retries)
+Database operations
+Access the database container
+docker compose exec db psql -U postgres -d booking_platform
+
+Useful checks
+
+List payment events:
+
+SELECT * FROM "PaymentEvent" ORDER BY "createdAt" DESC;
+
+
+Check bookings:
+
+SELECT id, status, "stripeSessionId" FROM "Booking";
+
+Prisma migrations
+Apply migrations (automatic)
+
+Migrations are applied automatically on container startup.
+
+Manual migration (advanced)
+docker compose exec backend npx prisma migrate deploy
+
+Common issues & resolutions
+Backend fails on startup with Prisma error
+
+Cause:
+
+Database not reachable
+
+Invalid DATABASE_URL
+
+Action:
+
+Check database container logs
+
+Verify environment variables in docker-compose.yml
+
+Stripe webhook returns 500
+
+Cause:
+
+Application error during processing
+
+Action:
+
+Check backend logs
+
+Stripe will retry automatically
+
+Do not manually replay unless debugging
+
+Stripe retries seen as warnings
+
+This is normal.
+
+Stripe retries are expected and handled safely via DB idempotence.
+
+Login endpoint blocked
+
+Cause:
+
+Rate limiting (anti brute-force)
+
+Action:
+
+Wait for rate limit window to reset
+
+This is expected security behavior
+
+Security notes (operational)
+
+Webhooks are rate-limited but permissive
+
+Login endpoints are strictly rate-limited
+
+Secrets must never be logged
+
+HTTPS termination is assumed to be handled upstream (reverse proxy)
+
+What this system does NOT do
+
+No background jobs
+
+No async workers
+
+No message queues
+
+No frontend rendering in production image
+
+These are intentional design decisions.
+
+Resetting the environment (local)
+
+⚠ This deletes all data
+
+docker compose down -v
+docker compose up --build
+
+Ownership & scope
+
+This backend is designed to:
+
+Be easy to reason about
+
+Be easy to debug
+
+Be safe under failure
+
+It prioritizes correctness and clarity over scalability tricks.

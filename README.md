@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 # booking-platform-pro-senior
 
 **Production-ready backend reference** built with **Express, PostgreSQL, Prisma, and Stripe Checkout**, designed for **short freelance missions** focused on **reliability, payments, and operational clarity**.
@@ -378,3 +379,361 @@ Security reports are handled responsibly:
 * acknowledgement when received
 * fix if reproducible and relevant
 * minimal disclosure of exploit details
+=======
+\# booking-platform-pro-senior
+
+
+
+Production-ready \*\*backend reference\*\* built with \*\*Express\*\*, \*\*PostgreSQL\*\*, \*\*Prisma\*\*, and \*\*Stripe Checkout\*\*.
+
+
+
+This repository demonstrates how to build a \*\*reliable, auditable payment backend\*\* with pragmatic security and a minimal production setup.  
+
+It is intentionally \*\*not a SaaS\*\* and avoids unnecessary architectural complexity.
+
+
+
+The focus is on \*\*doing payments right\*\*.
+
+
+
+---
+
+
+
+\## Who this project is for
+
+
+
+This backend is suitable if you need:
+
+
+
+\- A \*\*correct Stripe Checkout integration\*\*
+
+\- Webhooks that \*\*never double-process payments\*\*
+
+\- A clear, auditable payment flow
+
+\- A backend that survives retries, crashes, and restarts
+
+\- A simple Docker-based production setup
+
+\- A developer focused on \*\*reliability over speed\*\*
+
+
+
+Typical use cases:
+
+\- Booking or reservation platforms
+
+\- Paid services or paid access
+
+\- Stripe webhook reliability audits
+
+\- Stabilizing an existing Node.js backend
+
+
+
+---
+
+
+
+\## What this backend delivers
+
+
+
+\### Stripe payments you can trust
+
+\- Stripe Checkout integration
+
+\- Signed webhooks
+
+\- \*\*Database-level idempotence\*\*
+
+\- Strict ACK policy (correct Stripe retries)
+
+\- Persistent payment ledger (`PaymentEvent`)
+
+
+
+\### Backend reliability
+
+\- PostgreSQL as the single source of truth
+
+\- Prisma ORM and migrations
+
+\- Transactional payment handling
+
+\- Explicit error handling and structured logs
+
+
+
+\### Security (pragmatic)
+
+\- Rate limiting on login (anti brute-force)
+
+\- Rate limiting on Stripe webhooks (public endpoint protection)
+
+\- Secure HTTP headers
+
+\- Input validation
+
+\- Password hashing
+
+
+
+\### Production readiness
+
+\- Dockerized backend
+
+\- Docker Compose with PostgreSQL
+
+\- Prisma client generation and migrations at startup
+
+\- `/health` endpoint for monitoring
+
+\- Minimal and readable configuration
+
+
+
+---
+
+
+
+\## Stripe reliability – key design choices
+
+
+
+\### Why idempotence matters
+
+Stripe may deliver the same webhook event multiple times (retries, network issues, crashes).  
+
+A production backend must guarantee that \*\*business logic runs exactly once\*\*.
+
+
+
+\### Idempotency boundary: `stripeSessionId`
+
+\- ❌ Stripe `event.id` changes between retries
+
+\- ✅ `checkout.session.id` represents the actual payment transaction
+
+
+
+This backend enforces idempotence \*\*at the database level\*\* using `stripeSessionId`.
+
+
+
+\### DB-first workflow
+
+1\. Every valid webhook attempts to insert a `PaymentEvent`
+
+2\. `stripeSessionId` is unique in the database
+
+3\. Duplicate inserts are safely ignored
+
+4\. Stripe receives `200 OK` for already-processed events
+
+
+
+This approach is:
+
+\- Safe under concurrency
+
+\- Safe across restarts
+
+\- Easy to audit
+
+
+
+\### Ledger-first approach
+
+Even if no booking matches a payment, the webhook event is still recorded.
+
+
+
+Benefits:
+
+\- Complete audit trail
+
+\- Easier debugging
+
+\- Protection against replay attacks
+
+
+
+---
+
+
+
+\## ACK policy (Stripe)
+
+
+
+| Situation | HTTP response |
+
+|---------|----------------|
+
+| Invalid signature | `400` (no retry) |
+
+| Processed successfully | `200` |
+
+| Already processed (idempotent) | `200` |
+
+| Processing error | `500` (Stripe retries) |
+
+
+
+---
+
+
+
+\## Running the project (Docker)
+
+
+
+\### Requirements
+
+\- Docker Desktop
+
+
+
+\### Start
+
+```bash
+
+docker compose up --build
+
+
+
+
+
+Backend runs on:
+
+
+
+http://localhost:3000
+
+
+
+Health check
+
+curl http://localhost:3000/health
+
+
+
+
+
+Expected response:
+
+
+
+{ "status": "ok" }
+
+
+
+
+
+On Windows PowerShell, prefer curl.exe or irm to avoid HTML parsing prompts.
+
+
+
+Configuration
+
+
+
+Environment variables are loaded via Docker Compose.
+
+
+
+Key variables:
+
+
+
+NODE\_ENV=production
+
+DATABASE\_URL=postgresql://...
+
+
+
+SESSION\_SECRET=change-me
+
+
+
+STRIPE\_SECRET\_KEY=sk\_...
+
+STRIPE\_WEBHOOK\_SECRET=whsec\_...
+
+
+
+
+
+Secrets must never be committed.
+
+
+
+Intentional scope
+
+
+
+This repository deliberately does not include:
+
+
+
+A React frontend
+
+
+
+Microservices
+
+
+
+Kubernetes or cloud-specific infrastructure
+
+
+
+Advanced Stripe features (subscriptions, billing portal)
+
+
+
+The goal is to solve a narrow problem extremely well.
+
+
+
+What I can deliver using this reference
+
+
+
+Stripe Checkout integration
+
+
+
+Stripe webhook hardening and idempotence fixes
+
+
+
+Backend reliability audits
+
+
+
+Payment bug investigation
+
+
+
+Dockerization of Node.js backends
+
+
+
+Typical engagements are short and well-scoped.
+
+
+
+Operations
+
+
+
+Operational details are documented in RUNBOOK.md.
+
+>>>>>>> Stashed changes
