@@ -1,3 +1,21 @@
+## About this repository
+
+This repository is a **frozen production reference** shared for **peer review and discussion**.
+
+It demonstrates a pragmatic and reliable Stripe Checkout integration
+(signed webhooks, database-level idempotence, proper ACK strategy),
+with a sober Express + PostgreSQL backend.
+
+This is **not**:
+- a starter template
+- a boilerplate
+- a SaaS product
+- something intended to be reused as-is
+
+Feedback is welcome, especially on:
+- Stripe webhook design & ACK policy
+- idempotence strategy
+- production pragmatism
 <<<<<<< Updated upstream
 # booking-platform-pro-senior
 
