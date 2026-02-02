@@ -1,1 +1,1 @@
-module.exports = require("./requireAuthPage");
+module.exports = require("./requireAuthApi");

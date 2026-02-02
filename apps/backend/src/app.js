@@ -20,7 +20,8 @@ const { requestContext } = require("./middlewares/requestContext");
 const { errorHandler } = require("./middlewares/errorHandler");
 
 // Page auth (redirect) for frontend routes
-const requireAuth = require("./middlewares/requireAuth");
+const requireAuthPage = require("./middlewares/requireAuthPage");
+
 
 // API routes
 const authRoutes = require("./modules/auth/auth.routes");
@@ -100,7 +101,8 @@ if (hasFrontend) {
     res.sendFile(path.join(publicDir, "login.html"));
   });
 
-  app.get("/dashboard", requireAuth, (req, res) => {
+  app.get("/dashboard", requireAuthPage, (req, res) => {
+
     res.sendFile(path.join(publicDir, "dashboard.html"));
   });
 } else {

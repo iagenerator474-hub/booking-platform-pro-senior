@@ -26,6 +26,7 @@ services:
       PORT: "3000"
       NODE_ENV: "production"
       DATABASE_URL: "postgres://booking:booking@db:5432/booking_platform"
+      STORAGE_DRIVER: "db"
     ports:
       - "3000:3000"
     command: >
@@ -35,3 +36,4 @@ services:
 
 volumes:
   booking_platform_pgdata:
+
