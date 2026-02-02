@@ -4,9 +4,9 @@ const router = express.Router();
 const stripe = require("../../config/stripe");
 const { STRIPE_WEBHOOK_SECRET } = require("../../config/env");
 
+const bookingService = require("../booking/booking.service");
 const { tryRegisterStripeEvent } = require("./payment-event.repository.db");
 const { prisma } = require("../../infra/prisma");
-const webhookCounters = require("../../infra/webhookCounters");
 
 /**
  * ✅ Signature verification isolated & injectable (mockable)
@@ -19,10 +19,8 @@ function verifyStripeEvent(rawBody, signature) {
 router.verifyStripeEvent = verifyStripeEvent;
 
 router.post("/", async (req, res) => {
-  webhookCounters.inc("webhook_received");
-
   const sig = req.headers["stripe-signature"];
-  const rawBody = req.body;
+  let event;
 
   if (req.log) {
     req.log.info({
@@ -32,13 +30,12 @@ router.post("/", async (req, res) => {
     });
   }
 
+  const rawBody = req.body;
+
   // 1) Verify signature (only this part returns 400)
-  let event;
   try {
     event = router.verifyStripeEvent(rawBody, sig);
   } catch (err) {
-    webhookCounters.inc("webhook_invalid_signature");
-
     if (req.log) {
       req.log.warn({
         module: "stripe",
@@ -60,138 +57,99 @@ router.post("/", async (req, res) => {
     });
   }
 
-  // Only handle the event(s) we care about; ACK 200 for the rest
-  if (event.type !== "checkout.session.completed") {
-    return res.json({ received: true });
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+
+    try {
+      const stripeSessionId = session.id;
+
+      const booking = await Promise.resolve(
+        bookingService.findByStripeSessionId
+          ? bookingService.findByStripeSessionId(stripeSessionId)
+          : null
+      );
+
+      const result = await prisma.$transaction(async (tx) => {
+        // ✅ P0 hardening: DB idempotence now effectively works on stripeSessionId (@unique)
+        const { alreadyProcessed } = await tryRegisterStripeEvent({
+          stripeEventId: event.id,
+          type: event.type,
+          stripeSessionId,
+          bookingId: booking?.id || null,
+          db: tx,
+        });
+
+        if (alreadyProcessed) {
+          return {
+            alreadyProcessed: true,
+            bookingUpdated: false,
+            bookingId: booking?.id || null,
+          };
+        }
+
+        let bookingUpdated = false;
+        if (booking?.id) {
+          await tx.booking.update({
+            where: { id: booking.id },
+            data: { status: "payé" },
+          });
+          bookingUpdated = true;
+        }
+
+        return {
+          alreadyProcessed: false,
+          bookingUpdated,
+          bookingId: booking?.id || null,
+        };
+      });
+
+      if (result.alreadyProcessed) {
+        if (req.log) {
+          req.log.warn({
+            module: "stripe",
+            action: "stripe.webhook.duplicate_db_ignored",
+            message:
+              "Stripe webhook already processed for this stripeSessionId (DB idempotent skip)",
+            stripeEventId: event.id,
+            stripeEventType: event.type,
+            stripeSessionId,
+          });
+        }
+      } else {
+        if (req.log) {
+          req.log.info({
+            module: "booking",
+            action: "booking.payment_confirmed",
+            message: result.bookingUpdated
+              ? "Booking marked as paid"
+              : "No matching booking found for stripeSessionId",
+            stripeEventId: event.id,
+            stripeEventType: event.type,
+            stripeSessionId,
+            bookingId: result.bookingId,
+          });
+        }
+      }
+    } catch (error) {
+      // ✅ Strict ACK policy: 500 => Stripe retries
+      if (req.log) {
+        req.log.error({
+          module: "stripe",
+          action: "stripe.webhook.processing_failed",
+          message: "Stripe webhook processing failed",
+          stripeEventId: event.id,
+          stripeEventType: event.type,
+          error: { message: error.message, code: error.code },
+        });
+      } else {
+        console.error("Stripe webhook processing error:", error);
+      }
+
+      return res.status(500).send("Webhook processing failed");
+    }
   }
 
-  const session = event.data.object;
-
-  try {
-    const stripeSessionId = session.id;
-
-    const result = await prisma.$transaction(async (tx) => {
-      const booking = await tx.booking.findUnique({
-        where: { stripeSessionId },
-      });
-
-      // ✅ Option A: If no booking => ACK 200 + log, do NOT create PaymentEvent
-      if (!booking) {
-        return { noBooking: true, bookingId: null };
-      }
-
-      // ✅ Business-level duplicate: already paid => no-op, do NOT create PaymentEvent
-      if (booking.status === "payé") {
-        return { alreadyPaid: true, bookingId: booking.id };
-      }
-
-      // event-level idempotency (only once per stripeEventId)
-      const { alreadyProcessed } = await tryRegisterStripeEvent({
-        stripeEventId: event.id,
-        type: event.type,
-        stripeSessionId,
-        bookingId: booking.id,
-        db: tx,
-      });
-
-      if (alreadyProcessed) {
-        return { alreadyProcessed: true, bookingId: booking.id };
-      }
-
-      await tx.booking.update({
-        where: { id: booking.id },
-        data: {
-          status: "payé",
-          stripePaymentIntentId: session.payment_intent ?? null,
-          amountTotal: session.amount_total ?? null,
-          currency: session.currency ?? null,
-        },
-      });
-
-      return { bookingUpdated: true, bookingId: booking.id };
-    });
-
-    // Outcomes
-    if (result.noBooking) {
-      if (req.log) {
-        req.log.info({
-          module: "stripe",
-          action: "stripe.webhook.no_booking",
-          message: "No matching booking found for stripeSessionId (ack, no DB write)",
-          stripeEventId: event.id,
-          stripeEventType: event.type,
-          stripeSessionId,
-        });
-      }
-      return res.json({ received: true });
-    }
-
-    if (result.alreadyPaid) {
-      webhookCounters.inc("webhook_ignored_duplicate");
-
-      if (req.log) {
-        req.log.warn({
-          module: "stripe",
-          action: "stripe.webhook.duplicate_business_ignored",
-          message: "Booking already paid (business idempotent skip)",
-          stripeEventId: event.id,
-          stripeEventType: event.type,
-          stripeSessionId,
-          bookingId: result.bookingId,
-        });
-      }
-      return res.json({ received: true });
-    }
-
-    if (result.alreadyProcessed) {
-      webhookCounters.inc("webhook_ignored_duplicate");
-
-      if (req.log) {
-        req.log.warn({
-          module: "stripe",
-          action: "stripe.webhook.duplicate_ignored",
-          message: "Stripe event already processed (event idempotent skip)",
-          stripeEventId: event.id,
-          stripeEventType: event.type,
-          stripeSessionId,
-          bookingId: result.bookingId,
-        });
-      }
-      return res.json({ received: true });
-    }
-
-    webhookCounters.inc("webhook_booking_paid");
-
-    if (req.log) {
-      req.log.info({
-        module: "booking",
-        action: "booking.payment_confirmed",
-        message: "Booking marked as paid",
-        stripeEventId: event.id,
-        stripeEventType: event.type,
-        stripeSessionId,
-        bookingId: result.bookingId,
-      });
-    }
-
-    return res.json({ received: true });
-  } catch (error) {
-    if (req.log) {
-      req.log.error({
-        module: "stripe",
-        action: "stripe.webhook.processing_failed",
-        message: "Stripe webhook processing failed",
-        stripeEventId: event.id,
-        stripeEventType: event.type,
-        error: { message: error.message, code: error.code },
-      });
-    } else {
-      console.error("Stripe webhook processing error:", error);
-    }
-
-    return res.status(500).send("Webhook processing failed");
-  }
+  return res.json({ received: true });
 });
 
 module.exports = router;
-

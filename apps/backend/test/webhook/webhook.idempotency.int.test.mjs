@@ -21,16 +21,17 @@ describe("POST /webhook — idempotence", () => {
     vi.restoreAllMocks();
   });
 
-  it("processes the same stripeEventId only once", async () => {
+  it("processes the same stripeSessionId only once (DB idempotence)", async () => {
     const stripeSessionId = "cs_test_idempotent";
-    const stripeEventId = "evt_test_once";
+    const stripeEventId1 = "evt_test_once_1";
+    const stripeEventId2 = "evt_test_once_2";
 
     await prisma.booking.create({
       data: {
         firstName: "John",
         lastName: "Doe",
         email: "john@doe.com",
-        date: "2026-01-30", // ✅ schema expects String
+        date: "2026-01-30",
         time: "10:00",
         status: "en attente",
         stripeSessionId,
@@ -40,8 +41,14 @@ describe("POST /webhook — idempotence", () => {
       },
     });
 
-    vi.spyOn(stripe.webhooks, "constructEvent").mockReturnValue(
-      makeCheckoutCompletedEvent({ stripeEventId, stripeSessionId })
+    // 1st webhook: eventId #1
+    vi.spyOn(stripe.webhooks, "constructEvent").mockReturnValueOnce(
+      makeCheckoutCompletedEvent({ stripeEventId: stripeEventId1, stripeSessionId })
+    );
+
+    // 2nd webhook: eventId #2 (Stripe can retry with a new event id depending on scenario)
+    stripe.webhooks.constructEvent.mockReturnValueOnce(
+      makeCheckoutCompletedEvent({ stripeEventId: stripeEventId2, stripeSessionId })
     );
 
     const payload = Buffer.from(JSON.stringify({ any: "raw" }));
@@ -63,16 +70,19 @@ describe("POST /webhook — idempotence", () => {
     expect(r2.status).toBeGreaterThanOrEqual(200);
     expect(r2.status).toBeLessThan(300);
 
+    // ✅ With P0 hardening, DB enforces one processed event per stripeSessionId
     const events = await prisma.paymentEvent.findMany({
-      where: { stripeEventId },
+      where: { stripeSessionId },
     });
     expect(events.length).toBe(1);
+    expect(events[0].stripeSessionId).toBe(stripeSessionId);
 
     const bookingAfter = await prisma.booking.findFirst({
-  where: { stripeSessionId },
-});
+      where: { stripeSessionId },
+    });
 
-expect(bookingAfter).not.toBeNull();
-expect(bookingAfter.status).toBe("payé");
+    expect(bookingAfter).not.toBeNull();
+    expect(bookingAfter.status).toBe("payé");
   });
 });
+
