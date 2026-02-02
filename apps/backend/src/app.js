@@ -13,7 +13,6 @@ const {
 } = require("./config/env");
 
 const { securityHeaders } = require("./middlewares/securityHeaders");
-const { webhookLimiter } = require("./middlewares/rateLimit");
 const { requestContext } = require("./middlewares/requestContext");
 const { errorHandler } = require("./middlewares/errorHandler");
 
@@ -46,7 +45,7 @@ app.use(securityHeaders());
 
 /**
  * ------------------------------------------------------------
- * Request context (requestId/log correlation)
+ * Request context (requestId / log correlation)
  * ------------------------------------------------------------
  */
 app.use(requestContext);
@@ -66,10 +65,7 @@ app.use(
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-
-    // express-session uses trust proxy for secure cookies behind proxy
     proxy: TRUST_PROXY,
-
     cookie: {
       httpOnly: true,
       secure: cookieSecure,
@@ -105,11 +101,11 @@ app.get("/dashboard", requireAuth, (req, res) => {
 
 /**
  * ------------------------------------------------------------
- * Stripe webhook: MUST use RAW body (signature verification)
- * + rate-limit to protect the endpoint
+ * Stripe webhook
+ * MUST use RAW body (signature verification)
+ * Rate limiting is handled LOCALLY in webhook.controller.js
  * ------------------------------------------------------------
  */
-app.use("/webhook", webhookLimiter);
 app.use("/webhook", express.raw({ type: "application/json" }));
 
 /**
@@ -155,4 +151,3 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 module.exports = app;
-

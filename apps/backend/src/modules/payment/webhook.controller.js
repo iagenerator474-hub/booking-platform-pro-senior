@@ -8,17 +8,25 @@ const bookingService = require("../booking/booking.service");
 const { tryRegisterStripeEvent } = require("./payment-event.repository.db");
 const { prisma } = require("../../infra/prisma");
 
+// ✅ reuse existing rateLimit middleware (CJS-consistent)
+const { stripeWebhookLimiter } = require("../../middlewares/rateLimit");
+
 /**
  * ✅ Signature verification isolated & injectable (mockable)
  */
 function verifyStripeEvent(rawBody, signature) {
-  return stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET);
+  return stripe.webhooks.constructEvent(
+    rawBody,
+    signature,
+    STRIPE_WEBHOOK_SECRET
+  );
 }
 
 // ✅ expose on router so tests can spy/mock it
 router.verifyStripeEvent = verifyStripeEvent;
 
-router.post("/", async (req, res) => {
+// 🔒 Rate-limited Stripe webhook (permissive)
+router.post("/", stripeWebhookLimiter, async (req, res) => {
   const sig = req.headers["stripe-signature"];
   let event;
 
@@ -70,7 +78,7 @@ router.post("/", async (req, res) => {
       );
 
       const result = await prisma.$transaction(async (tx) => {
-        // ✅ P0 hardening: DB idempotence now effectively works on stripeSessionId (@unique)
+        // ✅ P0 hardening: DB idempotence on stripeSessionId (@unique)
         const { alreadyProcessed } = await tryRegisterStripeEvent({
           stripeEventId: event.id,
           type: event.type,
