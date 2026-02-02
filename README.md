@@ -1,4 +1,4 @@
-## About this repository
+stripe-checkout-backend-reference
 
 This repository is a **frozen production reference** shared for **peer review and technical discussion**.
 
