@@ -36,10 +36,15 @@ async function tryRegisterStripeEvent({
         bookingId: bookingId || null,
       },
     });
-    return { alreadyProcessed: false };
+
+    return { alreadyProcessed: false, duplicateTarget: null };
   } catch (err) {
     // Prisma unique constraint violation
-    if (err && err.code === "P2002") return { alreadyProcessed: true };
+    if (err && err.code === "P2002") {
+      // err.meta.target peut indiquer quel champ unique a déclenché (ex: ["stripeSessionId"])
+      const duplicateTarget = err?.meta?.target || null;
+      return { alreadyProcessed: true, duplicateTarget };
+    }
     throw err;
   }
 }

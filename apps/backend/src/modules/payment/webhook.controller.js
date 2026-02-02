@@ -11,6 +11,8 @@ const { prisma } = require("../../infra/prisma");
 // ✅ reuse existing rateLimit middleware (CJS-consistent)
 const { stripeWebhookLimiter } = require("../../middlewares/rateLimit");
 
+const webhookCounters = require("../../infra/webhookCounters");
+
 /**
  * ✅ Signature verification isolated & injectable (mockable)
  */
@@ -38,12 +40,31 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
     });
   }
 
+  webhookCounters.inc("webhook_received");
+
   const rawBody = req.body;
+
+  // ✅ P0 hardening: explicite si header manquant (évite comportement flou)
+  if (!sig) {
+    webhookCounters.inc("webhook_invalid_signature");
+
+    if (req.log) {
+      req.log.warn({
+        module: "stripe",
+        action: "stripe.webhook.signature_missing",
+        message: "Missing Stripe-Signature header",
+      });
+    }
+
+    return res.status(400).send("Webhook Error: Missing Stripe-Signature header");
+  }
 
   // 1) Verify signature (only this part returns 400)
   try {
     event = router.verifyStripeEvent(rawBody, sig);
   } catch (err) {
+    webhookCounters.inc("webhook_invalid_signature");
+
     if (req.log) {
       req.log.warn({
         module: "stripe",
@@ -71,25 +92,24 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
     try {
       const stripeSessionId = session.id;
 
-      const booking = await Promise.resolve(
-        bookingService.findByStripeSessionId
-          ? bookingService.findByStripeSessionId(stripeSessionId)
-          : null
-      );
+      // ✅ polish: appel direct (le service existe dans ce projet)
+      const booking = await bookingService.findByStripeSessionId(stripeSessionId);
 
       const result = await prisma.$transaction(async (tx) => {
         // ✅ P0 hardening: DB idempotence on stripeSessionId (@unique)
-        const { alreadyProcessed } = await tryRegisterStripeEvent({
-          stripeEventId: event.id,
-          type: event.type,
-          stripeSessionId,
-          bookingId: booking?.id || null,
-          db: tx,
-        });
+        const { alreadyProcessed, duplicateTarget } =
+          await tryRegisterStripeEvent({
+            stripeEventId: event.id,
+            type: event.type,
+            stripeSessionId,
+            bookingId: booking?.id || null,
+            db: tx,
+          });
 
         if (alreadyProcessed) {
           return {
             alreadyProcessed: true,
+            duplicateTarget: duplicateTarget || null,
             bookingUpdated: false,
             bookingId: booking?.id || null,
           };
@@ -106,12 +126,15 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
 
         return {
           alreadyProcessed: false,
+          duplicateTarget: null,
           bookingUpdated,
           bookingId: booking?.id || null,
         };
       });
 
       if (result.alreadyProcessed) {
+        webhookCounters.inc("webhook_ignored_duplicate");
+
         if (req.log) {
           req.log.warn({
             module: "stripe",
@@ -121,9 +144,14 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
             stripeEventId: event.id,
             stripeEventType: event.type,
             stripeSessionId,
+            duplicateTarget: result.duplicateTarget,
           });
         }
       } else {
+        if (result.bookingUpdated) {
+          webhookCounters.inc("webhook_booking_paid");
+        }
+
         if (req.log) {
           req.log.info({
             module: "booking",
@@ -161,3 +189,4 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
 });
 
 module.exports = router;
+

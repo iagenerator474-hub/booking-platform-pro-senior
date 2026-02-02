@@ -13,6 +13,8 @@ const {
   COOKIE_DOMAIN,
 } = require("./config/env");
 
+const { prisma } = require("./infra/prisma");
+
 const { securityHeaders } = require("./middlewares/securityHeaders");
 const { requestContext } = require("./middlewares/requestContext");
 const { errorHandler } = require("./middlewares/errorHandler");
@@ -143,6 +145,24 @@ app.use((req, res, next) => {
  */
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
+});
+
+// ✅ DB connectivity probe (useful for container orchestration / incident triage)
+app.get("/health/db", async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({ status: "ok", db: "ok" });
+  } catch (err) {
+    if (req.log) {
+      req.log.error({
+        module: "health",
+        action: "health.db_failed",
+        message: "Database health check failed",
+        error: { message: err.message },
+      });
+    }
+    return res.status(503).json({ status: "degraded", db: "down" });
+  }
 });
 
 /**
