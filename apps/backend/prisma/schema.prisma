@@ -21,7 +21,7 @@ model Booking {
   time      String
 
   // --- Paiement / Stripe ---
-  status               String  @default("en attente") // "en attente" | "payé"
+  status                String  @default("en attente") // "en attente" | "payé"
   stripeSessionId       String? @unique
   stripePaymentIntentId String?
   amountTotal           Int?
@@ -37,26 +37,29 @@ model Booking {
 }
 
 model PaymentEvent {
-  id              String   @id @default(uuid())
-  stripeEventId   String   @unique
-  type            String
-  stripeSessionId String?
-  bookingId       String?
-  processedAt     DateTime @default(now())
+  id            String @id @default(uuid())
+  stripeEventId String @unique
+  type          String
 
-  // Relation DB propre (FK). Optionnelle car bookingId est nullable.
-  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  // ✅ P0: idempotence persistée par stripeSessionId (1 event traité par session)
+  // Postgres: UNIQUE sur champ nullable autorise plusieurs NULL (OK pour autres event types)
+  stripeSessionId String? @unique
 
-  @@index([stripeSessionId])
+  // ✅ FK optionnelle vers Booking (no-booking allowed)
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  processedAt DateTime @default(now())
+
   @@index([bookingId])
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
+  id           String  @id @default(uuid())
+  email        String  @unique
   passwordHash String
-  role         String   // ADMIN | OPS | READONLY
-  isActive     Boolean  @default(true)
+  role         String // ADMIN | OPS | READONLY
+  isActive     Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -64,4 +67,3 @@ model User {
   @@index([role])
   @@index([isActive])
 }
-

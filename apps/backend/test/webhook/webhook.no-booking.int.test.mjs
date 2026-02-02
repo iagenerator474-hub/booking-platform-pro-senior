@@ -21,11 +21,11 @@ describe("POST /webhook — no booking", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not create a PaymentEvent when no booking matches (ack only)", async () => {
+  it("records a PaymentEvent even when no booking matches (ack only, no booking update)", async () => {
     const stripeSessionId = "cs_test_unknown";
     const stripeEventId = "evt_test_unknown";
 
-    vi.spyOn(stripe.webhooks, "constructEvent").mockReturnValue(
+    vi.spyOn(stripe.webhooks, "constructEvent").mockReturnValueOnce(
       makeCheckoutCompletedEvent({ stripeEventId, stripeSessionId })
     );
 
@@ -37,15 +37,19 @@ describe("POST /webhook — no booking", () => {
       .set("content-type", "application/json")
       .send(payload);
 
-    // ✅ ACK OK
     expect(res.status).toBe(200);
 
-    // ❌ No PaymentEvent created
-    const evt = await prisma.paymentEvent.findUnique({
-      where: { stripeEventId },
+    // ✅ New policy: we persist the event (ledger) even if no booking is found,
+    // to prevent endless retries / duplicated work and keep an audit trail.
+    const evt = await prisma.paymentEvent.findFirst({
+      where: { stripeSessionId },
     });
 
-    expect(evt).toBeNull();
+    expect(evt).not.toBeNull();
+    expect(evt.stripeSessionId).toBe(stripeSessionId);
+    expect(evt.stripeEventId).toBe(stripeEventId);
+    expect(evt.bookingId).toBeNull();
+    expect(evt.type).toBe("checkout.session.completed");
   });
 });
 
