@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const bodyParser = require("body-parser");
 const session = require("express-session");
@@ -78,26 +79,38 @@ app.use(
 
 /**
  * ------------------------------------------------------------
- * Frontend (static)
- * IMPORTANT: must be BEFORE the 404 handler
+ * Frontend (static) - OPTIONAL
+ * In Docker "backend-only" image, the frontend folder may not exist.
  * ------------------------------------------------------------
  */
 const publicDir = path.join(__dirname, "..", "..", "frontend", "public");
+const hasFrontend = fs.existsSync(publicDir);
 
-if (NODE_ENV !== "test") {
-  // eslint-disable-next-line no-console
-  console.log("Serving admin frontend from:", publicDir);
+if (hasFrontend) {
+  if (NODE_ENV !== "test") {
+    // eslint-disable-next-line no-console
+    console.log("Serving admin frontend from:", publicDir);
+  }
+
+  app.use(express.static(publicDir));
+
+  app.get("/login", (req, res) => {
+    res.sendFile(path.join(publicDir, "login.html"));
+  });
+
+  app.get("/dashboard", requireAuth, (req, res) => {
+    res.sendFile(path.join(publicDir, "dashboard.html"));
+  });
+} else {
+  // Docker / backend-only mode: keep endpoint predictable (no ENOENT)
+  app.get("/login", (req, res) => {
+    res.status(501).json({
+      error: "frontend_not_available",
+      message: "Frontend is not served in this environment (backend-only image).",
+      requestId: req.requestId,
+    });
+  });
 }
-
-app.use(express.static(publicDir));
-
-app.get("/login", (req, res) => {
-  res.sendFile(path.join(publicDir, "login.html"));
-});
-
-app.get("/dashboard", requireAuth, (req, res) => {
-  res.sendFile(path.join(publicDir, "dashboard.html"));
-});
 
 /**
  * ------------------------------------------------------------
@@ -121,6 +134,15 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   if (req.originalUrl.startsWith("/webhook")) return next();
   return bodyParser.urlencoded({ extended: false })(req, res, next);
+});
+
+/**
+ * ------------------------------------------------------------
+ * Health
+ * ------------------------------------------------------------
+ */
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
 });
 
 /**
@@ -151,3 +173,4 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 module.exports = app;
+

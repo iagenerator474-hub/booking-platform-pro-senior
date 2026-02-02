@@ -12,5 +12,26 @@ services:
     volumes:
       - booking_platform_pgdata:/var/lib/postgresql/data
 
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: booking_platform_backend
+    restart: unless-stopped
+    depends_on:
+      - db
+    env_file:
+      - ./apps/backend/.env
+    environment:
+      PORT: "3000"
+      NODE_ENV: "production"
+      DATABASE_URL: "postgres://booking:booking@db:5432/booking_platform"
+    ports:
+      - "3000:3000"
+    command: >
+      sh -c "npx prisma generate &&
+             npx prisma migrate deploy &&
+             node src/server.js"
+
 volumes:
   booking_platform_pgdata:
