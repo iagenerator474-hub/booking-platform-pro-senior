@@ -1,252 +1,322 @@
-# RUNBOOK – booking-platform-pro-senior
+# RUNBOOK — booking-platform-pro-senior
 
-This document describes how to **run, operate, monitor, and troubleshoot**
-the `booking-platform-pro-senior` backend in a production-like environment.
+Ce runbook décrit les procédures opérationnelles (local/prod léger Docker) pour diagnostiquer et corriger rapidement les incidents.
 
-It is written for:
-- Developers
-- Operators
-- Technical clients
-- Future maintainers
+- Backend: Node.js + Express
+- DB: PostgreSQL 16
+- ORM: Prisma
+- Paiements: Stripe Checkout + webhooks signés + idempotence en base
+- Observabilité minimale: requestId + logs + compteurs webhook
+- Endpoints santé: `/health` et `/health/db`
 
----
-
-## Overview
-
-This backend is a **Dockerized Express application** using:
-- PostgreSQL 16
-- Prisma ORM
-- Stripe Checkout + signed webhooks
-
-The system is intentionally simple:
-- Single backend service
-- Single database
-- No external queues
-- No background workers
-
-Reliability is achieved through **database idempotence**, not infrastructure complexity.
+> Objectif: remettre le service en état "OK" rapidement, sans bricolage.
 
 ---
 
-## Services
+## 0) Pré-requis
 
-Docker Compose starts two services:
+### Variables d’environnement critiques
+- `DATABASE_URL` (Postgres)
+- `SESSION_SECRET`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STORAGE_DRIVER=db` (requis pour mode DB)
 
-| Service | Description |
-|------|------------|
-| `backend` | Express API server |
-| `db` | PostgreSQL 16 |
+### Ports
+- Backend: `3000`
+- Postgres: `5432`
 
 ---
 
-## Starting the stack
+## 1) Commandes utiles
 
-From the repository root:
-
+### État général Docker
 ```bash
-docker compose up --build
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f db
 
 
-Expected result:
-
-PostgreSQL starts
-
-Prisma client is generated
-
-Pending migrations are applied
-
-Backend listens on port 3000
-
-Stopping the stack
-docker compose down
 
 
-To also remove volumes (⚠ data loss):
+Vérification santé
+curl -s http://localhost:3000/health
+curl -s http://localhost:3000/health/db
 
-docker compose down -v
+Se connecter à Postgres (dans le container)
+docker exec -it booking_platform_db psql -U booking -d booking_platform
 
-Health check
+Exécuter une migration (container backend)
 
-The backend exposes a health endpoint:
+En prod: prisma migrate deploy
 
-GET /health
+docker exec -it booking_platform_backend sh -lc "npx prisma migrate deploy"
 
+2) Healthchecks
+/health
 
-Example:
+Doit répondre 200 si le backend tourne.
 
-curl http://localhost:3000/health
+Si KO: vérifier logs backend + port + env.
 
+/health/db
 
-Response:
+Doit répondre 200 si la DB est joignable.
 
-{ "status": "ok" }
+Si KO: DB down, mauvais DATABASE_URL, réseau Docker.
 
+3) Incidents — Stripe Webhooks
+3.1 Webhook Stripe en retry / boucle
 
-If this endpoint is reachable, the backend is running and responsive.
+Symptôme
 
-Logs
-View logs
-docker compose logs backend
+Stripe Dashboard montre des retries sur l’endpoint webhook
 
+logs backend montrent des erreurs répétées sur webhook
 
-Follow logs:
+Causes fréquentes
+
+STRIPE_WEBHOOK_SECRET incorrect
+
+raw body cassé (middleware JSON appliqué avant le webhook)
+
+DB down -> impossibilité de créer le ledger/idempotence
+
+exceptions non catchées
+
+Actions
+
+Vérifier logs backend autour des requêtes webhook
 
 docker compose logs -f backend
 
-What to look for
 
-Normal startup logs include:
+Vérifier le secret
 
-Prisma client generation
+s’assurer que STRIPE_WEBHOOK_SECRET correspond exactement à celui du Dashboard (endpoint concerné)
 
-Migration status
+Vérifier DB
 
-Server running on port 3000
+curl -s http://localhost:3000/health/db
 
-Stripe-related logs include:
 
-Webhook received
+Interprétation des codes HTTP (règle)
 
-Signature verification
+200 : Stripe considère l’event traité
 
-Idempotent skip warnings (expected on retries)
+400 : Stripe ne retry pas (à utiliser seulement si l’event est invalide / signature invalide)
 
-Stripe webhook behavior
-Expected behavior
+500 : Stripe retry (incident à corriger)
 
-Stripe will retry webhooks
+Politique recommandée: signature invalide => 400, erreur interne/DB => 500 (retry utile), succès/idempotent => 200.
 
-Duplicate deliveries are normal
+3.2 Signature invalide (Stripe)
 
-The backend must not process the same payment twice
+Symptôme
 
-Idempotence mechanism
+logs: "Invalid signature" ou équivalent
 
-Idempotence is enforced at the database level
+Stripe marque l’event failed (pas retry si 400)
 
-stripeSessionId is unique
+Actions
 
-Duplicate webhook deliveries result in:
+Vérifier STRIPE_WEBHOOK_SECRET
 
-No business logic re-execution
+Vérifier que l’endpoint configuré côté Stripe correspond au bon path
 
-HTTP 200 OK response
+Vérifier que le serveur ne modifie pas le body avant vérification signature (raw body requis)
 
-This is expected and healthy behavior.
+3.3 Event traité plusieurs fois (double paiement / double booking)
 
-ACK policy summary
-Situation	Response
-Invalid Stripe signature	400
-Successful processing	200
-Already processed	200
-Processing error	500 (Stripe retries)
-Database operations
-Access the database container
-docker compose exec db psql -U postgres -d booking_platform
+Symptôme
 
-Useful checks
+Le même event semble déclencher deux fois un effet métier
 
-List payment events:
+Attendu
 
-SELECT * FROM "PaymentEvent" ORDER BY "createdAt" DESC;
+Le système doit être idempotent via DB (stripeSessionId unique / ledger)
 
+Actions
 
-Check bookings:
+Vérifier que l’idempotence DB est active (mode DB)
 
-SELECT id, status, "stripeSessionId" FROM "Booking";
+STORAGE_DRIVER=db
 
-Prisma migrations
-Apply migrations (automatic)
+Vérifier en DB l’existence du même stripeSessionId
 
-Migrations are applied automatically on container startup.
+SELECT stripeSessionId, COUNT(*)
+FROM "Booking"
+WHERE stripeSessionId IS NOT NULL
+GROUP BY stripeSessionId
+HAVING COUNT(*) > 1;
 
-Manual migration (advanced)
-docker compose exec backend npx prisma migrate deploy
 
-Common issues & resolutions
-Backend fails on startup with Prisma error
+Vérifier le ledger des events
 
-Cause:
+SELECT "stripeEventId", "type", "stripeSessionId", "processedAt"
+FROM "PaymentEvent"
+ORDER BY "processedAt" DESC
+LIMIT 50;
 
-Database not reachable
 
-Invalid DATABASE_URL
+Si des doublons apparaissent: incident P0 => corriger avant prod.
 
-Action:
+4) Incidents — Base de données
+4.1 DB down / /health/db KO
 
-Check database container logs
+Symptôme
 
-Verify environment variables in docker-compose.yml
+/health OK mais /health/db KO
 
-Stripe webhook returns 500
+erreurs Prisma/pg dans les logs
 
-Cause:
+Actions
 
-Application error during processing
+Vérifier que Postgres tourne
 
-Action:
+docker compose ps
+docker compose logs -f db
 
-Check backend logs
 
-Stripe will retry automatically
+Vérifier DATABASE_URL (dans docker compose, le host doit être db)
+Exemple:
+postgres://booking:booking@db:5432/booking_platform
 
-Do not manually replay unless debugging
+Redémarrer DB
 
-Stripe retries seen as warnings
+docker compose restart db
 
-This is normal.
 
-Stripe retries are expected and handled safely via DB idempotence.
+Vérifier les migrations
 
-Login endpoint blocked
+docker exec -it booking_platform_backend sh -lc "npx prisma migrate deploy"
 
-Cause:
+4.2 Migration cassée / Prisma error au démarrage
 
-Rate limiting (anti brute-force)
+Symptôme
 
-Action:
+le backend ne démarre pas (ou crash) après migrate deploy
 
-Wait for rate limit window to reset
+Actions
 
-This is expected security behavior
+Lire l’erreur complète dans les logs backend
 
-Security notes (operational)
+Si migration récente: rollback applicatif (revenir au tag précédent) est souvent plus rapide que “bricoler” la DB.
 
-Webhooks are rate-limited but permissive
+Rollback simple (revenir à un tag stable)
 
-Login endpoints are strictly rate-limited
+Checkout d’un tag stable
 
-Secrets must never be logged
+rebuild docker
 
-HTTPS termination is assumed to be handled upstream (reverse proxy)
-
-What this system does NOT do
-
-No background jobs
-
-No async workers
-
-No message queues
-
-No frontend rendering in production image
-
-These are intentional design decisions.
-
-Resetting the environment (local)
-
-⚠ This deletes all data
-
-docker compose down -v
+git checkout v2.5.7-prod-hardening
+docker compose down
 docker compose up --build
 
-Ownership & scope
+5) Incidents — Auth / Sessions
+5.1 Routes API renvoient une redirection /login
 
-This backend is designed to:
+Symptôme
 
-Be easy to reason about
+le client API reçoit 302 vers /login au lieu d’un 401 JSON
 
-Be easy to debug
+Attendu
 
-Be safe under failure
+API => 401 JSON
 
-It prioritizes correctness and clarity over scalability tricks.
+Pages => redirection /login
+
+Fix
+
+routes API utilisent requireAuthApi
+
+pages utilisent requireAuthPage
+
+middlewares/requireAuth.js doit pointer sur requireAuthApi
+
+5.2 Cookies/sessions ne marchent pas en prod
+
+Causes fréquentes
+
+cookies secure mal configurés derrière proxy HTTPS
+
+trust proxy non défini
+
+Actions
+
+vérifier NODE_ENV=production
+
+vérifier configuration session/cookies (httpOnly/sameSite/secure)
+
+si reverse-proxy: s’assurer que app.set("trust proxy", 1) est configuré (selon infra)
+
+6) Observabilité / logs
+requestId
+
+Chaque requête a un requestId dans les logs.
+Utiliser le requestId pour corréler une requête client et ses sous-actions (DB, webhook, etc).
+
+Compteurs webhook
+
+Si des compteurs existent (succès/duplicate/failed), les consulter pour identifier:
+
+pics de retry
+
+augmentations de duplicates (idempotence)
+
+erreurs DB (corrélé à /health/db)
+
+7) Checklist “prod léger” avant mise en ligne
+
+ STORAGE_DRIVER=db
+
+ /health OK
+
+ /health/db OK
+
+ STRIPE_WEBHOOK_SECRET configuré
+
+ webhook endpoint configuré dans Stripe Dashboard
+
+ rate limit activé sur login + webhook
+
+ logs lisibles + requestId
+
+ migrations Prisma appliquées (migrate deploy)
+
+ test d’un paiement complet en mode test Stripe
+
+8) Tests rapides post-déploiement
+
+Healthchecks
+
+curl -i https://<host>/health
+curl -i https://<host>/health/db
+
+
+Stripe test payment (mode test) -> vérifier:
+
+session checkout OK
+
+webhook reçu
+
+booking/payment créé 1 seule fois
+
+ledger PaymentEvent rempli
+
+
+---
+
+## Commit + tag RUNBOOK
+
+Une fois collé :
+```powershell
+git add RUNBOOK.md
+git commit -m "docs: add operational runbook"
+git push
+
+
+Puis tag:
+
+git tag v2.5.7-runbook
+git push origin v2.5.7-runbook
