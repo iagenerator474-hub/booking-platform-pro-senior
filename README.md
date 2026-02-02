@@ -192,9 +192,189 @@ See `RUNBOOK.md` for:
 * Restarting services
 * Database migrations
 * Common operational checks
-  n---
+
+---
 
 ## Status
 
 This project is **frozen** and used as a **production reference**.
 It evolves only when required by real-world client work.
+
+---
+
+# RUNBOOK.md
+
+This runbook documents **day‑to‑day operations**, debugging steps, and recovery procedures for the backend.
+
+## Starting the stack
+
+```bash
+docker compose up --build
+```
+
+## Stopping the stack
+
+```bash
+docker compose down
+```
+
+## Health check
+
+```bash
+curl http://localhost:3000/health
+```
+
+Expected response:
+
+```json
+{ "status": "ok" }
+```
+
+If `/health` fails, check container logs before restarting.
+
+---
+
+## Inspecting logs
+
+```bash
+docker compose logs backend
+```
+
+Stripe‑related logs use the `stripe.webhook.*` namespace.
+
+---
+
+## Debugging Stripe webhooks
+
+1. Confirm Stripe signature verification succeeded
+2. Check database table `PaymentEvent`
+3. Verify:
+
+   * `stripeSessionId`
+   * `event.type`
+   * `alreadyProcessed`
+
+A duplicated webhook is **not an error** if it is idempotently ignored.
+
+---
+
+## Database checks
+
+Connect to Postgres:
+
+```bash
+docker compose exec db psql -U postgres booking_platform
+```
+
+Useful queries:
+
+```sql
+SELECT * FROM "PaymentEvent" ORDER BY "createdAt" DESC;
+```
+
+---
+
+## Restarting cleanly
+
+If state is corrupted or for a full reset:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+⚠️ This removes local database volumes.
+
+---
+
+## Prisma migrations
+
+Migrations are applied automatically at container startup.
+
+Manual deploy:
+
+```bash
+npx prisma migrate deploy
+```
+
+---
+
+## Known limitations
+
+* Session store uses `MemoryStore` (single instance only)
+* No horizontal scaling (by design)
+* Frontend is not served in Docker
+
+These are **intentional trade‑offs** for simplicity and reliability.
+
+---
+
+# SECURITY.md
+
+## Security Policy
+
+This repository demonstrates a **production‑grade backend reference** with pragmatic security choices.
+
+---
+
+## Supported versions
+
+This project is frozen. The following tags are considered stable:
+
+* `v2.5.1-docker-clean`
+* `v2.4.1-clean-rate-limit`
+
+Earlier versions may be outdated.
+
+---
+
+## Reporting a vulnerability
+
+If you discover a security issue:
+
+1. Do **not** open a public issue with exploit details
+2. Open a GitHub issue labeled `security` with a high‑level description, or contact the maintainer privately
+
+Please include:
+
+* affected version or tag
+* impacted area (auth, Stripe webhook, DB, etc.)
+* steps to reproduce (without sensitive data)
+
+---
+
+## Security design notes
+
+### Stripe webhooks
+
+* Signature verification using Stripe signing secret
+* Raw body required
+* Strict ACK policy (`400`, `200`, `500`)
+* Database‑level idempotence on `stripeSessionId`
+* Persistent payment ledger
+
+### Rate limiting
+
+* Login: strict anti brute‑force
+* Stripe webhook: permissive but present (public endpoint)
+
+### Secrets
+
+* Secrets must never be committed
+* `.env` files are excluded
+* Docker environment variables are preferred
+
+### Dependencies
+
+* `npm audit` warnings should be reviewed manually
+* Avoid forced upgrades without validation
+
+---
+
+## Responsible disclosure
+
+Security reports are handled responsibly:
+
+* acknowledgement when received
+* fix if reproducible and relevant
+* minimal disclosure of exploit details
