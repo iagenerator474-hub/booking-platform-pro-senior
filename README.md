@@ -1,143 +1,200 @@
-# Booking Platform — Backend Reference (Stripe Checkout)
+# booking-platform-pro-senior
 
-This repository is a **reference backend project** focused on **Stripe Checkout with signed webhooks and strict idempotence**.
+**Production-ready backend reference** built with **Express, PostgreSQL, Prisma, and Stripe Checkout**, designed for **short freelance missions** focused on **reliability, payments, and operational clarity**.
 
-It is **not** a SaaS, template generator, or full product.
-The goal is to demonstrate a **reliable, explainable, and auditable** payment flow with a **simple Express backend**.
-
----
-
-## 🎯 Scope & Intent
-
-* Backend-first, **DB as source of truth**
-* Stripe Checkout (hosted UI)
-* **Signed webhooks** as the only payment confirmation
-* **Idempotence** at event and business levels
-* Simple, readable Express architecture
-
-**Out of scope (by design):**
-
-* Custom Payment Intents flows
-* Frontend frameworks
-* Microservices / queues / cloud-specific infra
-* “Senior-level” abstractions or patterns for their own sake
+This project is intentionally **not a SaaS** and not an over-engineered showcase. It demonstrates how to build and deliver a **calm, dependable backend** that handles payments correctly, survives retries, and is easy to operate in production.
 
 ---
 
-## 🔍 Feedback wanted
+## Who this is for
 
-I’m sharing this repository to get **technical feedback**, especially on:
+This backend is a good fit if you need:
 
-* Stripe Checkout **webhook flow** (signature verification, retries, idempotence)
-* Express backend **structure & boundaries**
-* **Prisma schema**, constraints, and transactions
-* **Security hardening** (cookies, rate limiting, trust boundaries)
+* A **reliable Stripe Checkout integration** (with webhooks done properly)
+* A backend that **never double-processes payments**
+* A clear, auditable payment flow
+* A simple Docker-based production setup
+* A developer who prioritizes **correctness over speed**
 
-You **don’t need to run the project or open a PR**.
-Comments and issues are more than enough.
+Typical use cases:
 
----
-
-## 🧭 Architecture overview
-
-High-level flow:
-
-1. Frontend triggers a checkout intent (order/booking id only)
-2. Backend loads data from DB and computes the price
-3. Backend creates a **Stripe Checkout Session**
-4. User pays on Stripe-hosted page
-5. Stripe sends a **signed webhook** (`checkout.session.completed`)
-6. Backend verifies signature, ensures idempotence, and updates DB
-
-**Key principles:**
-
-* Frontend never validates payments
-* Redirect URLs are UX-only
-* Webhook is the single source of truth
-* Database is the final authority
+* Booking or reservation platforms
+* Paid access to services or resources
+* Stripe webhook reliability audits
+* Stabilization of an existing backend
 
 ---
 
-## 🔐 Stripe & Payments
+## What this backend delivers
 
-* Stripe Checkout Sessions
-* Signed webhooks (`rawBody` + `WEBHOOK_SECRET`)
-* Event filtering (`checkout.session.completed` only)
-* **Idempotence**:
+### Stripe payments you can trust
 
-  * `stripeEventId` (event-level)
-  * `stripeSessionId` (business-level)
-* Atomic updates via Prisma transactions
+* Stripe Checkout integration
+* Signed webhooks
+* **Database-level idempotence** (no duplicate payment processing)
+* Clear ACK policy (Stripe retries only when appropriate)
+* Persistent payment ledger for audit and debugging
 
-A `PaymentEvent` ledger is used for auditability and incident debugging.
+### Backend reliability
 
----
+* PostgreSQL as the single source of truth
+* Prisma ORM with migrations
+* Transactional payment handling
+* Explicit error handling and logging
 
-## 🧪 Tests
+### Security (pragmatic, not theoretical)
 
-Tests focus on **business-critical scenarios**, not coverage metrics:
+* Rate limiting on login (anti brute-force)
+* Rate limiting on Stripe webhooks (public endpoint protection)
+* Secure headers
+* Input validation
+* Password hashing
 
-* Valid payment confirmation
-* Duplicate webhooks (Stripe retries)
-* Already-paid bookings
-* Error paths that must trigger Stripe retries
+### Production readiness
 
-Their purpose is to **lock invariants** around money and prevent regressions.
-
----
-
-## 🔐 Security
-
-* No trust in frontend input
-* Prices computed server-side only
-* Rate limiting on sensitive routes
-* Cookie/session hardening
-* No secrets committed (env-based configuration)
-
-See `SECURITY.md` for details.
+* Dockerized backend
+* Docker Compose setup with PostgreSQL
+* Automatic Prisma client generation and migrations
+* `/health` endpoint for monitoring
+* Minimal, readable configuration
 
 ---
 
-## 📂 Repository structure
+## Stripe reliability – design choices
 
-```
-apps/
-  backend/        # Express backend
-  frontend/       # Minimal static frontend (demo only)
-docs/             # ADRs, audit notes, runbook
-prisma/           # Schema & migrations
-scripts/          # Utilities
-```
+### Why idempotence matters
+
+Stripe may deliver the same event multiple times due to retries, network issues, or crashes. A production backend must guarantee that **business logic runs exactly once**.
+
+### Key decision: `stripeSessionId`
+
+* ❌ Stripe `event.id` changes on retries
+* ✅ `checkout.session.id` represents the actual payment transaction
+
+This backend uses `stripeSessionId` as the **idempotency boundary**, enforced at the database level.
+
+### How it works
+
+* Every valid webhook attempts to insert a `PaymentEvent`
+* `stripeSessionId` is **unique** in the database
+* If insertion fails due to a duplicate, the event is safely ignored
+* Stripe receives `200 OK` for already-processed events
+
+This approach is:
+
+* Safe under concurrent delivery
+* Safe across server restarts
+* Easy to audit
+
+### Ledger-first approach
+
+Even if no booking matches a payment, the webhook event is still recorded.
+
+Benefits:
+
+* Full audit trail
+* Easier debugging
+* Protection against replay attacks
 
 ---
 
-## 🚀 Running locally (minimal)
+## Acknowledgement (ACK) policy
+
+| Situation                      | HTTP response          |
+| ------------------------------ | ---------------------- |
+| Invalid Stripe signature       | `400` (no retry)       |
+| Successful processing          | `200`                  |
+| Already processed (idempotent) | `200`                  |
+| Processing error               | `500` (Stripe retries) |
+
+---
+
+## Running the project (Docker)
+
+### Requirements
+
+* Docker Desktop
+
+### Start
 
 ```bash
-cd apps/backend
-npm install
-npm run dev
+docker compose up --build
 ```
 
-Stripe CLI is recommended for local webhook testing.
-See `RUNBOOK.md` for step-by-step instructions.
+Backend runs on:
+
+```
+http://localhost:3000
+```
+
+### Health check
+
+```bash
+curl http://localhost:3000/health
+```
+
+Expected response:
+
+```json
+{ "status": "ok" }
+```
 
 ---
 
-## 🧾 How to give feedback
+## Configuration
 
-Please use **GitHub Issues**.
+Environment variables are loaded from `apps/backend/.env` (via Docker Compose).
 
-If possible, classify feedback as:
+Key variables:
 
-* **P0** – critical / dangerous
-* **P1** – important improvement
-* **P2** – nice to have
+```env
+NODE_ENV=production
+DATABASE_URL=postgresql://...
 
-Pull requests are **not required**.
+STRIPE_SECRET_KEY=sk_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+> Secrets must never be committed to the repository.
 
 ---
 
-## 📄 License
+## Project scope (intentional limitations)
 
-MIT — this project is shared for learning, discussion, and reference.
+This repository deliberately does **not** include:
+
+* A React frontend
+* Microservices
+* Kubernetes or cloud-specific infrastructure
+* Advanced Stripe features (subscriptions, billing portal, etc.)
+
+The focus is on **doing a small number of things extremely well**.
+
+---
+
+## What I can deliver using this reference
+
+* Stripe Checkout integration from scratch
+* Stripe webhook hardening and idempotence fixes
+* Backend reliability audits
+* Payment bug investigation and remediation
+* Dockerization of existing Node.js backends
+
+Typical engagement: **short, well-scoped missions (≈ 20–30 hours/week)**.
+
+---
+
+## Operations
+
+See `RUNBOOK.md` for:
+
+* Debugging Stripe webhooks
+* Restarting services
+* Database migrations
+* Common operational checks
+  n---
+
+## Status
+
+This project is **frozen** and used as a **production reference**.
+It evolves only when required by real-world client work.
