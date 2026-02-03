@@ -197,11 +197,7 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
           webhookCounters.inc("webhook_booking_paid");
         } else if (!booking?.id) {
           // ✅ optional counter (won't crash if missing)
-          try {
-            webhookCounters.inc("webhook_no_booking");
-          } catch (_) {
-            // ignore
-          }
+         webhookCounters.inc("webhook_no_booking");
         }
 
         if (req.log) {
