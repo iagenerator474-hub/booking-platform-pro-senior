@@ -17,11 +17,7 @@ const webhookCounters = require("../../infra/webhookCounters");
  * ✅ Signature verification isolated & injectable (mockable)
  */
 function verifyStripeEvent(rawBody, signature) {
-  return stripe.webhooks.constructEvent(
-    rawBody,
-    signature,
-    STRIPE_WEBHOOK_SECRET
-  );
+  return stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET);
 }
 
 // ✅ expose on router so tests can spy/mock it
@@ -44,7 +40,7 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
 
   const rawBody = req.body;
 
-  // ✅ P0 hardening: explicite si header manquant (évite comportement flou)
+  // ✅ explicit header missing
   if (!sig) {
     webhookCounters.inc("webhook_invalid_signature");
 
@@ -86,25 +82,44 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
     });
   }
 
+  // 2) Handle event types
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
+
+    // ✅ P0: gate "paid" only when Stripe confirms payment
+    // Backward compatibility: some tests/mocks may omit payment_status.
+    // - if present => must be "paid"
+    // - if missing => assume paid but warn (so prod issues are visible)
+    const paymentStatus = session?.payment_status; // "paid" | "unpaid" | "no_payment_required" | ...
+    const isPaymentStatusMissing = paymentStatus == null;
+    const isPaid = isPaymentStatusMissing ? true : paymentStatus === "paid";
+
+    if (isPaymentStatusMissing && req.log) {
+      req.log.warn({
+        module: "stripe",
+        action: "stripe.webhook.payment_status_missing",
+        message:
+          "checkout.session.completed received without payment_status; defaulting to paid for backward compatibility",
+        stripeEventId: event.id,
+        stripeEventType: event.type,
+        stripeSessionId: session?.id,
+      });
+    }
 
     try {
       const stripeSessionId = session.id;
 
-      // ✅ polish: appel direct (le service existe dans ce projet)
       const booking = await bookingService.findByStripeSessionId(stripeSessionId);
 
       const result = await prisma.$transaction(async (tx) => {
-        // ✅ P0 hardening: DB idempotence on stripeSessionId (@unique)
-        const { alreadyProcessed, duplicateTarget } =
-          await tryRegisterStripeEvent({
-            stripeEventId: event.id,
-            type: event.type,
-            stripeSessionId,
-            bookingId: booking?.id || null,
-            db: tx,
-          });
+        // ✅ DB idempotence on stripeSessionId (@unique)
+        const { alreadyProcessed, duplicateTarget } = await tryRegisterStripeEvent({
+          stripeEventId: event.id,
+          type: event.type,
+          stripeSessionId,
+          bookingId: booking?.id || null,
+          db: tx,
+        });
 
         if (alreadyProcessed) {
           return {
@@ -112,23 +127,53 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
             duplicateTarget: duplicateTarget || null,
             bookingUpdated: false,
             bookingId: booking?.id || null,
+            isPaid,
           };
         }
 
-        let bookingUpdated = false;
-        if (booking?.id) {
-          await tx.booking.update({
-            where: { id: booking.id },
-            data: { status: "payé" },
-          });
-          bookingUpdated = true;
+        // No booking => keep ledger but don't update
+        if (!booking?.id) {
+          return {
+            alreadyProcessed: false,
+            duplicateTarget: null,
+            bookingUpdated: false,
+            bookingId: null,
+            isPaid,
+          };
         }
+
+        // Booking exists but not confirmed paid => no status change
+        if (!isPaid) {
+          return {
+            alreadyProcessed: false,
+            duplicateTarget: null,
+            bookingUpdated: false,
+            bookingId: booking.id,
+            isPaid,
+          };
+        }
+
+        // ✅ booking marked as paid + persist payment fields when available
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            status: "payé",
+            stripePaymentIntentId:
+              session.payment_intent || booking.stripePaymentIntentId,
+            amountTotal:
+              typeof session.amount_total === "number"
+                ? session.amount_total
+                : booking.amountTotal,
+            currency: session.currency || booking.currency,
+          },
+        });
 
         return {
           alreadyProcessed: false,
           duplicateTarget: null,
-          bookingUpdated,
-          bookingId: booking?.id || null,
+          bookingUpdated: true,
+          bookingId: booking.id,
+          isPaid,
         };
       });
 
@@ -150,19 +195,34 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
       } else {
         if (result.bookingUpdated) {
           webhookCounters.inc("webhook_booking_paid");
+        } else if (!booking?.id) {
+          // ✅ optional counter (won't crash if missing)
+          try {
+            webhookCounters.inc("webhook_no_booking");
+          } catch (_) {
+            // ignore
+          }
         }
 
         if (req.log) {
+          let message;
+          if (!booking?.id) {
+            message = "No matching booking found for stripeSessionId";
+          } else if (!result.isPaid) {
+            message = `Booking found but not marked paid (payment_status=${paymentStatus})`;
+          } else {
+            message = "Booking marked as paid";
+          }
+
           req.log.info({
             module: "booking",
             action: "booking.payment_confirmed",
-            message: result.bookingUpdated
-              ? "Booking marked as paid"
-              : "No matching booking found for stripeSessionId",
+            message,
             stripeEventId: event.id,
             stripeEventType: event.type,
             stripeSessionId,
             bookingId: result.bookingId,
+            paymentStatus,
           });
         }
       }
