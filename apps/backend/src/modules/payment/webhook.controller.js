@@ -48,7 +48,8 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
       req.log.warn({
         module: "stripe",
         action: "stripe.webhook.signature_invalid",
-        message: "Invalid Stripe webhook signature",
+        outcome: "rejected",
+        message: "Stripe webhook rejected: invalid signature",
         error: { message: err.message },
       });
     }
@@ -116,8 +117,8 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
           req.log.warn({
             module: "stripe",
             action: "stripe.webhook.duplicate_db_ignored",
-            message:
-              "Stripe webhook already processed for this stripeSessionId (DB idempotent skip)",
+            outcome: "duplicate",
+            message: "Stripe webhook already processed (idempotence)",
             stripeEventId: event.id,
             stripeEventType: event.type,
             stripeSessionId,
@@ -128,13 +129,13 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
           req.log.info({
             module: "booking",
             action: "booking.payment_confirmed",
-            message: result.bookingUpdated
-              ? "Booking marked as paid"
-              : "No matching booking found for stripeSessionId",
+            outcome: "processed",
+            message: "Stripe webhook processed for the first time",
             stripeEventId: event.id,
             stripeEventType: event.type,
             stripeSessionId,
             bookingId: result.bookingId,
+            bookingUpdated: result.bookingUpdated,
           });
         }
       }
@@ -144,7 +145,8 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
         req.log.error({
           module: "stripe",
           action: "stripe.webhook.processing_failed",
-          message: "Stripe webhook processing failed",
+          outcome: "rejected",
+          message: "Stripe webhook rejected: processing error",
           stripeEventId: event.id,
           stripeEventType: event.type,
           error: { message: error.message, code: error.code },
@@ -157,6 +159,16 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
     }
   }
 
+  if (req.log) {
+    req.log.info({
+      module: "stripe",
+      action: "stripe.webhook.acknowledged",
+      outcome: "processed",
+      message: "Stripe webhook acknowledged (event type not handled)",
+      stripeEventId: event.id,
+      stripeEventType: event.type,
+    });
+  }
   return res.json({ received: true });
 });
 
