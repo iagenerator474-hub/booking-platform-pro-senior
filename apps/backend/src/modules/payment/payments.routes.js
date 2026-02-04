@@ -1,14 +1,14 @@
 const express = require("express");
 const router = express.Router();
 
-const requireAuth = require("../../middlewares/requireAuth");
+const requireAuthApi = require("../../middlewares/requireAuthApi");
 const { prisma } = require("../../infra/prisma");
 
 /**
  * GET /payments
  * Ledger Stripe (PaymentEvent) – Admin protected
  */
-router.get("/payments", requireAuth, async (req, res, next) => {
+router.get("/payments", requireAuthApi, async (req, res, next) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 500);
 

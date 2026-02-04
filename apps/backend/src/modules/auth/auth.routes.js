@@ -4,7 +4,7 @@ const { z } = require("zod");
 const controller = require("./auth.controller");
 const { validateBody } = require("../../middlewares/validate");
 const { loginLimiter } = require("../../middlewares/rateLimit");
-const requireAuth = require("../../middlewares/requireAuth"); // API-friendly (401 JSON)
+const requireAuthApi = require("../../middlewares/requireAuthApi");
 
 const router = express.Router();
 
@@ -35,7 +35,7 @@ router.post(
 // Logout (session destroy)
 router.post("/logout", controller.logout);
 
-// Current session user (API-safe)
-router.get("/me", requireAuth, controller.me);
+// Current session user (API-safe, 401 JSON if unauthenticated)
+router.get("/me", requireAuthApi, controller.me);
 
 module.exports = router;
