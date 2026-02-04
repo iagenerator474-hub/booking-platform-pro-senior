@@ -52,7 +52,7 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
         action: "stripe.webhook.signature_invalid",
         outcome: "rejected",
         message: "Stripe webhook rejected: invalid signature",
-        error: { message: err.message },
+        error: err,
       });
     }
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -155,7 +155,7 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
           message: "Stripe webhook rejected: processing error",
           stripeEventId: event.id,
           stripeEventType: event.type,
-          error: { message: error.message, code: error.code },
+          error,
         });
       } else {
         console.error("Stripe webhook processing error:", error);

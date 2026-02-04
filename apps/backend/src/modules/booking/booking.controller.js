@@ -65,7 +65,7 @@ async function createCheckoutSession(req, res) {
         module: "booking",
         action: "booking.checkout_session.failed",
         message: "Failed to create checkout session",
-        error: { message: e?.message, code: e?.code, stack: e?.stack },
+        error: e,
       });
     }
     return res.status(e?.status || 500).json({
@@ -87,7 +87,7 @@ async function listReservations(req, res) {
         module: "booking",
         action: "booking.list_failed",
         message: "Failed to list reservations",
-        error: { message: e?.message, code: e?.code, stack: e?.stack },
+        error: e,
       });
     }
     return res.status(500).json({
