@@ -34,27 +34,56 @@ grep "\"stripeEventId\":\"${EID}\"" -n server.log
 
 Expected signals:
 - `stripe.webhook.received`
-- `stripe.webhook.duplicate_ignored` (if Stripe retried) OR
-- `booking.payment_confirmed`
+- `stripe.webhook.duplicate_db_ignored` (if Stripe retried) OR
+- `booking.payment_confirmed` / `stripe.webhook.acknowledged`
 - `stripe.webhook.processing_failed` (if something broke)
 
-### 3) Find duplicate Stripe event processing
+### 3) Filter webhook logs by outcome
+
+Every webhook path logs an **outcome**: `processed`, `duplicate`, or `rejected`.
 
 ```bash
-grep '"action":"stripe.webhook.duplicate_ignored"' -n server.log
+# First-time processed
+grep '"outcome":"processed"' -n server.log
+
+# Duplicates (idempotence — normal on Stripe retries)
+grep '"outcome":"duplicate"' -n server.log
+
+# Rejected (invalid signature or processing error)
+grep '"outcome":"rejected"' -n server.log
+```
+
+### 4) Find duplicate Stripe event processing
+
+```bash
+grep '"action":"stripe.webhook.duplicate_db_ignored"' -n server.log
 ```
 
 This should be **normal** occasionally (Stripe retries), and indicates idempotence is working.
 
+## Webhook counters (GET /admin/metrics)
+
+Requires authentication (ADMIN or OPS). Response includes:
+
+```json
+{ "webhook": { "received": 42, "duplicates": 3, "errors": 0 } }
+```
+
+- **received**: webhooks with valid signature (since process start)
+- **duplicates**: events already processed (idempotence)
+- **errors**: invalid signature or processing failure
+
+Counters are in-memory; they reset on process restart.
+
 ## Interpreting common log actions
 
-| action | level | meaning | what to do |
-|---|---:|---|---|
-| `http.request.failed` | error | unhandled failure during request | look up `requestId` then fix root cause (DB, env, code) |
-| `stripe.webhook.signature_invalid` | warn | invalid Stripe signature | check Stripe CLI secret / webhook secret |
-| `stripe.webhook.processing_failed` | error | webhook processing failed | check DB availability, Prisma, and event ledger insert |
-| `stripe.webhook.duplicate_ignored` | warn | Stripe retry safely skipped | no action, unless too frequent |
-| `booking.payment_confirmed` | info | booking state updated to paid | normal |
+| action | outcome | level | meaning | what to do |
+|---|---|---|---:|---|
+| `http.request.failed` | — | error | unhandled failure during request | look up `requestId` then fix root cause (DB, env, code) |
+| `stripe.webhook.signature_invalid` | rejected | warn | invalid Stripe signature | check Stripe CLI secret / webhook secret |
+| `stripe.webhook.processing_failed` | rejected | error | webhook processing failed | check DB availability, Prisma, and event ledger insert |
+| `stripe.webhook.duplicate_db_ignored` | duplicate | warn | Stripe retry safely skipped | no action, unless too frequent |
+| `booking.payment_confirmed` / `stripe.webhook.acknowledged` | processed | info | first-time processed or ack | normal |
 
 ## Notes
 

@@ -111,6 +111,12 @@ Signature verification
 
 Idempotent skip warnings (expected on retries)
 
+Each webhook log includes an **outcome** field: `processed` (first-time), `duplicate` (idempotence), or `rejected` (invalid signature or processing error). Use `grep '"outcome":"duplicate"'` to see retries; see docs/runbooks/observability.md for details.
+
+**Webhook counters (GET /admin/metrics)**
+
+Requires auth (ADMIN or OPS). Response includes `webhook`: `{ received, duplicates, errors }` — in-memory counts since process start. Useful for quick visibility on retries and errors.
+
 Stripe webhook behavior
 Expected behavior
 

@@ -32,7 +32,7 @@ Non-goals:
 - Webhook processes Stripe events
 - Idempotence via DB (PaymentEvent ledger + uniqueness constraints)
 - Strict ACK behavior (avoid repeated processing)
-- Minimal counters for webhook observability
+- Webhook observability: logs include outcome (`processed` / `duplicate` / `rejected`); in-memory counters (`received`, `duplicates`, `errors`) exposed at `GET /admin/metrics` (ADMIN|OPS)
 
 ### Auth / RBAC
 - Login via DB users + password hashing
