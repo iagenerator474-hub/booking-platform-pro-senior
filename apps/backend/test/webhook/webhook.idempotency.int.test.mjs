@@ -12,6 +12,7 @@ vi.mock("../../src/config/stripe", () => ({
 
 const stripe = require("../../src/config/stripe");
 const app = require("../../src/app");
+const webhookCounters = require("../../src/infra/webhookCounters");
 const { prisma, dbReset } = require("../utils/db");
 const { makeCheckoutCompletedEvent } = require("../utils/stripeMock");
 
@@ -83,6 +84,9 @@ describe("POST /webhook — idempotence", () => {
 
     expect(bookingAfter).not.toBeNull();
     expect(bookingAfter.status).toBe("payé");
+
+    const counters = webhookCounters.snapshot();
+    expect(counters.duplicates).toBe(1);
   });
 });
 

@@ -8,32 +8,27 @@ const app = require("../../src/app");
 const webhookController = require("../../src/modules/payment/webhook.controller");
 const { prisma, dbReset } = require("../utils/db");
 
-describe("POST /webhook — ACK policy", () => {
+describe("POST /webhook — signature invalid", () => {
   beforeEach(async () => {
     await dbReset();
     vi.restoreAllMocks();
   });
 
-  it("returns 500 when webhook processing fails after signature verification", async () => {
-    // ✅ signature OK
-    vi.spyOn(webhookController, "verifyStripeEvent").mockReturnValue({
-      id: "evt_ack_failure",
-      type: "checkout.session.completed",
-      data: { object: { id: "cs_test_ack" } },
+  it("returns 400 and does not write any PaymentEvent when signature is invalid", async () => {
+    vi.spyOn(webhookController, "verifyStripeEvent").mockImplementation(() => {
+      throw new Error("Invalid signature (test)");
     });
 
-    // ❌ DB down after signature OK
-    vi.spyOn(prisma, "$transaction").mockRejectedValue(new Error("DB down"));
+    const payload = Buffer.from(JSON.stringify({ any: "raw" }));
 
     const res = await request(app)
       .post("/webhook")
       .set("stripe-signature", "t=1,v1=fake")
       .set("content-type", "application/json")
-      .send(Buffer.from(JSON.stringify({ any: "raw" })));
+      .send(payload);
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
 
-    // no PaymentEvent should be written when processing fails
     const events = await prisma.paymentEvent.findMany();
     expect(events.length).toBe(0);
   });
