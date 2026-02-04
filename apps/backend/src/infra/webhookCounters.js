@@ -1,8 +1,7 @@
 const counters = {
-  webhook_received: 0,
-  webhook_invalid_signature: 0,
-  webhook_ignored_duplicate: 0,
-  webhook_booking_paid: 0,
+  received: 0,
+  duplicates: 0,
+  errors: 0,
 };
 
 function inc(name) {

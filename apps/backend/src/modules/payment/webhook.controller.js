@@ -10,6 +10,7 @@ const { prisma } = require("../../infra/prisma");
 
 // ✅ reuse existing rateLimit middleware (CJS-consistent)
 const { stripeWebhookLimiter } = require("../../middlewares/rateLimit");
+const webhookCounters = require("../../infra/webhookCounters");
 
 /**
  * ✅ Signature verification isolated & injectable (mockable)
@@ -44,6 +45,7 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
   try {
     event = router.verifyStripeEvent(rawBody, sig);
   } catch (err) {
+    webhookCounters.inc("errors");
     if (req.log) {
       req.log.warn({
         module: "stripe",
@@ -55,6 +57,8 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
     }
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
+
+  webhookCounters.inc("received");
 
   if (req.log) {
     req.log.info({
@@ -113,6 +117,7 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
       });
 
       if (result.alreadyProcessed) {
+        webhookCounters.inc("duplicates");
         if (req.log) {
           req.log.warn({
             module: "stripe",
@@ -140,6 +145,7 @@ router.post("/", stripeWebhookLimiter, async (req, res) => {
         }
       }
     } catch (error) {
+      webhookCounters.inc("errors");
       // ✅ Strict ACK policy: 500 => Stripe retries
       if (req.log) {
         req.log.error({
