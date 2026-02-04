@@ -16,6 +16,7 @@ const {
 const { securityHeaders } = require("./middlewares/securityHeaders");
 const { requestContext } = require("./middlewares/requestContext");
 const { errorHandler } = require("./middlewares/errorHandler");
+const { prisma } = require("./infra/prisma");
 
 // Page auth (redirect) for frontend routes
 const requireAuth = require("./middlewares/requireAuth");
@@ -138,11 +139,16 @@ app.use((req, res, next) => {
 
 /**
  * ------------------------------------------------------------
- * Health
+ * Health (includes DB connectivity check for load balancer / orchestrator)
  * ------------------------------------------------------------
  */
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
+app.get("/health", async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(503).json({ status: "unavailable", db: "down" });
+  }
 });
 
 /**
