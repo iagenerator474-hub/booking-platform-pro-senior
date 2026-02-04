@@ -72,7 +72,7 @@ The backend exposes a health endpoint:
 GET /health
 
 
-Example:
+Example (DB healthy):
 
 curl http://localhost:3000/health
 
@@ -82,7 +82,14 @@ Response:
 { "status": "ok" }
 
 
-If this endpoint is reachable, the backend is running and responsive.
+If this endpoint is reachable **and** returns `200`, the backend and the database are both reachable.
+
+If the database is unavailable, `/health` returns `503` with:
+
+{ "status": "unavailable", "db": "down" }
+
+
+Use this endpoint for liveness/readiness checks in your load balancer or orchestrator.
 
 Logs
 View logs
@@ -204,6 +211,25 @@ This is normal.
 
 Stripe retries are expected and handled safely via DB idempotence.
 
+Sessions & auth model
+
+Sessions are stored **in memory** inside the Node.js process:
+
+- Single-instance deployments: acceptable; users will be logged out on process restart.
+- Multi-instance deployments: sessions are **not shared** between instances; this mode is not recommended without adding a shared session store.
+
+Authentication:
+
+- Session cookie `sid` is httpOnly and secure in production.
+- Login regenerates the session (mitigates session fixation).
+- User payload in session is minimal (`id`, `email`, `role`).
+
+API vs pages:
+
+- API login: `POST /auth/login`, logout: `POST /auth/logout`, current user: `GET /auth/me`.
+- HTML pages: `/login` and `/dashboard` when the frontend is present.
+- In backend-only Docker images, `/login` returns a JSON error; clients must use the `/auth/*` API endpoints for authentication.
+
 Login endpoint blocked
 
 Cause:
@@ -225,6 +251,17 @@ Login endpoints are strictly rate-limited
 Secrets must never be logged
 
 HTTPS termination is assumed to be handled upstream (reverse proxy)
+
+Deployment checklist (minimum)
+
+Before deploying to production, verify:
+
+- `SESSION_SECRET` is set, long, and random.
+- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` match the target Stripe environment.
+- `DATABASE_URL` points to the correct PostgreSQL instance.
+- `APP_URL` is set to the public HTTPS URL seen by end-users.
+- `COOKIE_SECURE=true` and `TRUST_PROXY=true` when running behind a TLS-terminating proxy.
+- Logs and `/admin/metrics` are reachable for operators (with proper auth).
 
 What this system does NOT do
 
