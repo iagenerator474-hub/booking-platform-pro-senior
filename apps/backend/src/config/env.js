@@ -16,6 +16,7 @@ module.exports = {
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: process.env.PORT || 4242,
   APP_URL: process.env.APP_URL || `http://localhost:${process.env.PORT || 4242}`,
+  APP_VERSION: process.env.APP_VERSION || "unknown",
 
   // Express behind reverse-proxy (Railway/Render/Fly/NGINX, etc.)
   TRUST_PROXY: bool("TRUST_PROXY", false),

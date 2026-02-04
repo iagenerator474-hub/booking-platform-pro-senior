@@ -61,19 +61,30 @@ grep '"action":"stripe.webhook.duplicate_db_ignored"' -n server.log
 
 This should be **normal** occasionally (Stripe retries), and indicates idempotence is working.
 
-## Webhook counters (GET /admin/metrics)
+## Admin metrics (GET /admin/metrics)
 
 Requires authentication (ADMIN or OPS). Response includes:
 
 ```json
-{ "webhook": { "received": 42, "duplicates": 3, "errors": 0 } }
+{
+  "webhook": { "received": 42, "duplicates": 3, "errors": 0 },
+  "runtime": { "uptimeSeconds": 1234, "http5xx": 2, "version": "v2.6.2" }
+}
 ```
+
+Webhook counters:
 
 - **received**: webhooks with valid signature (since process start)
 - **duplicates**: events already processed (idempotence)
 - **errors**: invalid signature or processing failure
 
-Counters are in-memory; they reset on process restart.
+Runtime metrics:
+
+- **uptimeSeconds**: process uptime since last start (in seconds)
+- **http5xx**: number of HTTP responses with status ≥ 500 since process start
+- **version**: application version from `APP_VERSION` (or `"unknown"` if not set)
+
+All of these counters are **in-memory** and reset on process restart.
 
 ## Interpreting common log actions
 

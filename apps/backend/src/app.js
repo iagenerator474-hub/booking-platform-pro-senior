@@ -11,12 +11,14 @@ const {
   COOKIE_SECURE,
   COOKIE_SAMESITE,
   COOKIE_DOMAIN,
+  APP_VERSION,
 } = require("./config/env");
 
 const { securityHeaders } = require("./middlewares/securityHeaders");
 const { requestContext } = require("./middlewares/requestContext");
 const { errorHandler } = require("./middlewares/errorHandler");
 const { prisma } = require("./infra/prisma");
+const { incHttp5xx } = require("./infra/runtimeMetrics");
 
 // Page auth (redirect) for frontend routes
 const requireAuth = require("./middlewares/requireAuth");
@@ -51,6 +53,20 @@ app.use(securityHeaders());
  * ------------------------------------------------------------
  */
 app.use(requestContext);
+
+/**
+ * ------------------------------------------------------------
+ * Runtime metrics (HTTP 5xx counter)
+ * ------------------------------------------------------------
+ */
+app.use((req, res, next) => {
+  res.on("finish", () => {
+    if (res.statusCode >= 500) {
+      incHttp5xx();
+    }
+  });
+  next();
+});
 
 /**
  * ------------------------------------------------------------
