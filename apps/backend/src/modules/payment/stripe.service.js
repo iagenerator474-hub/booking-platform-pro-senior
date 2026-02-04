@@ -1,7 +1,7 @@
 const stripe = require("../../config/stripe");
 const { APP_URL } = require("../../config/env");
 
-async function createCheckoutSession({ email, date, time }) {
+async function createCheckoutSession({ email, date, time, bookingId }) {
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
     line_items: [
@@ -15,6 +15,7 @@ async function createCheckoutSession({ email, date, time }) {
       },
     ],
     mode: "payment",
+    client_reference_id: bookingId || undefined,
     success_url: `${APP_URL}/success.html`,
     cancel_url: `${APP_URL}/cancel.html`,
     customer_email: email,

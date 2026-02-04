@@ -33,6 +33,17 @@ function createPending({ firstName, lastName, email, date, time, stripeSessionId
 }
 
 /**
+ * Attach a Stripe Checkout Session id to an existing booking (DB)
+ */
+function attachStripeSessionIdById({ id, stripeSessionId }) {
+  if (!id || !stripeSessionId) return null;
+  return prisma.booking.update({
+    where: { id },
+    data: { stripeSessionId },
+  });
+}
+
+/**
  * Find booking by Stripe Checkout Session id (DB)
  * Recommended to keep stripeSessionId unique in schema.
  */
@@ -79,4 +90,5 @@ module.exports = {
   markPaidByMetadata,
   findByStripeSessionId,
   markPaidById,
+  attachStripeSessionIdById,
 };

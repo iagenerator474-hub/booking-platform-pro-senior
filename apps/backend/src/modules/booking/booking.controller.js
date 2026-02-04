@@ -19,17 +19,25 @@ async function createCheckoutSession(req, res) {
       });
     }
 
-    // 1) Create Stripe session first (source of truth: session.id)
+    // 1) Create Booking first (source of truth: booking.id)
+    const booking = await asPromise(
+      bookingService.createPending({ firstName, lastName, email, date, time })
+    );
+
+    // 2) Create Stripe session, linked to booking via client_reference_id
     const { url, stripeSessionId } = await stripeService.createCheckoutSession({
       email,
       date,
       time,
+      bookingId: booking?.id,
     });
 
-    // 2) Store Booking in DB with stripeSessionId (reliable linkage)
-    // ✅ FIX CRITIQUE : en DB c'est async → il faut await
-    const booking = await asPromise(
-      bookingService.createPending({ firstName, lastName, email, date, time, stripeSessionId })
+    // 3) Attach stripeSessionId to Booking (DB or JSON driver)
+    await asPromise(
+      bookingService.attachStripeSessionIdById({
+        id: booking?.id,
+        stripeSessionId,
+      })
     );
 
     if (req.log) {

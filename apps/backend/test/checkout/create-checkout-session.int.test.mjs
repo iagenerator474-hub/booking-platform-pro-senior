@@ -47,6 +47,7 @@ describe("POST /create-checkout-session", () => {
         email: "john@doe.com",
         date: "2026-01-30",
         time: "10:00",
+        bookingId: expect.any(String),
       })
     );
   });

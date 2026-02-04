@@ -55,6 +55,15 @@ function jsonMarkPaidByMetadata({ email, date, time }) {
   return found;
 }
 
+function jsonAttachStripeSessionIdById({ id, stripeSessionId }) {
+  const items = jsonRepo.readAll();
+  const found = items.find((r) => r.id === id);
+  if (!found) return null;
+  found.stripeSessionId = stripeSessionId || null;
+  jsonRepo.writeAll(items);
+  return found;
+}
+
 function getRepo() {
   if (storageDriver === "db") return dbRepo;
   return {
@@ -63,6 +72,7 @@ function getRepo() {
     markPaidByMetadata: jsonMarkPaidByMetadata,
     findByStripeSessionId: jsonFindByStripeSessionId,
     markPaidById: jsonMarkPaidById,
+    attachStripeSessionIdById: jsonAttachStripeSessionIdById,
   };
 }
 
